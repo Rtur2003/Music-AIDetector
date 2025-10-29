@@ -1,0 +1,25 @@
+# Audio Processing & Analysis
+librosa==0.10.1
+soundfile==0.12.1
+pydub==0.25.1
+demucs==4.0.1
+scipy==1.11.4
+numpy==1.24.3
+
+# Machine Learning
+scikit-learn==1.3.2
+xgboost==2.0.3
+joblib==1.3.2
+
+# Feature Extraction
+essentia-tensorflow==2.1b6.dev1110
+
+# Utilities
+pandas==2.1.4
+tqdm==4.66.1
+matplotlib==3.8.2
+
+# Minimal API (sadece test için)
+fastapi==0.104.1
+uvicorn==0.24.0
+python-multipart==0.0.6
