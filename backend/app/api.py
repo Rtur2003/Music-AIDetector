@@ -17,8 +17,10 @@ import soundfile as sf
 try:
     # Preferred when installed as a package
     from .predictor import MusicAIPredictor
+    from .feature_extractor import FEATURE_EXTRACTOR_VERSION
 except Exception:  # pragma: no cover - fallback for direct script usage
     from predictor import MusicAIPredictor
+    from feature_extractor import FEATURE_EXTRACTOR_VERSION
 import uvicorn
 
 app = FastAPI(title="Music AI Detector API", version="1.0.0")
