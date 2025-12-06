@@ -80,6 +80,12 @@ class MusicAIPredictor:
         cleanup_dir = None
 
         try:
+            if self.metadata_version and self.metadata_version != FEATURE_EXTRACTOR_VERSION:
+                raise ValueError(
+                    f"Feature extractor version mismatch: "
+                    f"model expects {self.metadata_version}, runtime {FEATURE_EXTRACTOR_VERSION}"
+                )
+
             # 1. Vocal separation
             if separate_vocals:
                 print("  [1/3] Separating vocals...")
