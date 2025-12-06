@@ -46,6 +46,8 @@ class MusicAIDetectorTrainer:
         self.best_model_name = None
         self.feature_importance = None
         self.feature_names = None
+        self.results = {}
+        self.cv_results = {}
 
     def load_data(self):
         """
