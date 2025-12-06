@@ -215,9 +215,12 @@ class MusicAIDetectorTrainer:
             }).sort_values("importance", ascending=False)
 
         # Summary
-        self._print_summary(results, cv_results if cv_enabled else None)
+        self.results = results
+        self.cv_results = cv_results if cv_enabled else {}
 
-        return results, X_test_scaled, y_test
+        self._print_summary(self.results, self.cv_results if cv_enabled else None)
+
+        return self.results, X_test_scaled, y_test
 
     def _evaluate_model(self, model, X_test, y_test, model_name):
         """
