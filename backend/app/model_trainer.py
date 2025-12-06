@@ -326,6 +326,7 @@ class MusicAIDetectorTrainer:
             "model_file": str(model_file),
             "scaler_file": str(scaler_file),
             "feature_names": self.feature_names,
+            "feature_extractor_version": FEATURE_EXTRACTOR_VERSION,
         }
 
         if self.feature_importance is not None:
