@@ -28,6 +28,11 @@ from sklearn.metrics import (
 )
 import xgboost as xgb
 
+try:
+    from .feature_extractor import FEATURE_EXTRACTOR_VERSION
+except Exception:  # pragma: no cover - fallback for direct script usage
+    from feature_extractor import FEATURE_EXTRACTOR_VERSION
+
 
 class MusicAIDetectorTrainer:
     def __init__(self, data_dir="backend/data"):
