@@ -11,8 +11,13 @@ import seaborn as sns
 from pathlib import Path
 from datetime import datetime
 
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import (
+    train_test_split,
+    StratifiedKFold,
+    cross_val_score,
+)
 from sklearn.preprocessing import StandardScaler
+from sklearn.pipeline import Pipeline
 from sklearn.ensemble import RandomForestClassifier, VotingClassifier
 from sklearn.svm import SVC
 from sklearn.neural_network import MLPClassifier
@@ -68,9 +73,9 @@ class MusicAIDetectorTrainer:
 
         return X, y
 
-    def train_all_models(self, X, y, test_size=0.2):
+    def train_all_models(self, X, y, test_size=0.2, cv_folds=5):
         """
-        Train and compare multiple models.
+        Train and compare multiple models. Optionally run stratified CV.
         """
         # Train-test split
         X_train, X_test, y_train, y_test = train_test_split(
@@ -86,6 +91,10 @@ class MusicAIDetectorTrainer:
         print("=" * 60)
 
         results = {}
+        cv_results = {}
+        cv_enabled = y.value_counts().min() >= cv_folds
+        if not cv_enabled:
+            print(f"Skipping cross-validation (need at least {cv_folds} samples per class).")
 
         # 1. Random Forest
         print("\n[1/5] Training Random Forest...")
@@ -101,6 +110,8 @@ class MusicAIDetectorTrainer:
         results["Random Forest"] = self._evaluate_model(
             rf_model, X_test_scaled, y_test, "Random Forest"
         )
+        if cv_enabled:
+            cv_results["Random Forest"] = self._cross_validate_model(rf_model, X, y, cv_folds)
 
         # 2. XGBoost
         print("\n[2/5] Training XGBoost...")
@@ -116,6 +127,8 @@ class MusicAIDetectorTrainer:
         results["XGBoost"] = self._evaluate_model(
             xgb_model, X_test_scaled, y_test, "XGBoost"
         )
+        if cv_enabled:
+            cv_results["XGBoost"] = self._cross_validate_model(xgb_model, X, y, cv_folds)
 
         # 3. SVM
         print("\n[3/5] Training SVM...")
@@ -130,6 +143,8 @@ class MusicAIDetectorTrainer:
         results["SVM"] = self._evaluate_model(
             svm_model, X_test_scaled, y_test, "SVM"
         )
+        if cv_enabled:
+            cv_results["SVM"] = self._cross_validate_model(svm_model, X, y, cv_folds)
 
         # 4. Neural Network
         print("\n[4/5] Training Neural Network...")
@@ -145,6 +160,8 @@ class MusicAIDetectorTrainer:
         results["Neural Network"] = self._evaluate_model(
             nn_model, X_test_scaled, y_test, "Neural Network"
         )
+        if cv_enabled:
+            cv_results["Neural Network"] = self._cross_validate_model(nn_model, X, y, cv_folds)
 
         # 5. Ensemble (Voting)
         print("\n[5/5] Training Ensemble (Voting)...")
@@ -161,6 +178,9 @@ class MusicAIDetectorTrainer:
         results["Ensemble"] = self._evaluate_model(
             ensemble_model, X_test_scaled, y_test, "Ensemble"
         )
+        # CV for ensemble is costly; keep optional
+        if cv_enabled:
+            cv_results["Ensemble"] = self._cross_validate_model(ensemble_model, X, y, cv_folds)
 
         # Choose best model
         best_accuracy = -1
@@ -188,7 +208,7 @@ class MusicAIDetectorTrainer:
             }).sort_values("importance", ascending=False)
 
         # Summary
-        self._print_summary(results)
+        self._print_summary(results, cv_results if cv_enabled else None)
 
         return results, X_test_scaled, y_test
 
@@ -226,7 +246,22 @@ class MusicAIDetectorTrainer:
             "y_pred_proba": y_pred_proba,
         }
 
-    def _print_summary(self, results):
+    def _cross_validate_model(self, model, X, y, cv_folds):
+        """
+        Stratified k-fold cross-validation (accuracy).
+        """
+        cv = StratifiedKFold(n_splits=cv_folds, shuffle=True, random_state=42)
+        pipeline = Pipeline([
+            ("scaler", StandardScaler()),
+            ("model", model),
+        ])
+        scores = cross_val_score(pipeline, X, y, cv=cv, scoring="accuracy", n_jobs=-1)
+        mean_score = float(scores.mean())
+        std_score = float(scores.std())
+        print(f"  CV ({cv_folds} folds) accuracy: {mean_score:.4f} ± {std_score:.4f}")
+        return {"mean": mean_score, "std": std_score, "folds": cv_folds}
+
+    def _print_summary(self, results, cv_results=None):
         """
         Summary of all models.
         """
@@ -245,6 +280,16 @@ class MusicAIDetectorTrainer:
 
         print(summary_df.to_string(index=False))
         print(f"\nBest Model: {self.best_model_name}")
+
+        if cv_results:
+            print("\nCross-Validation (accuracy)")
+            cv_df = pd.DataFrame({
+                "Model": list(cv_results.keys()),
+                "CV_Mean": [r["mean"] for r in cv_results.values()],
+                "CV_Std": [r["std"] for r in cv_results.values()],
+                "Folds": [r["folds"] for r in cv_results.values()],
+            })
+            print(cv_df.to_string(index=False))
 
     def save_model(self):
         """
