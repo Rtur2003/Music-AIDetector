@@ -1,34 +1,27 @@
 """
-Model Trainer - AI vs Human müzik sınıflandırma modeli eğitir
-
-Birden fazla algoritma dener:
-1. Random Forest
-2. XGBoost
-3. SVM
-4. Neural Network
-5. Ensemble (voting)
+Model Trainer - trains AI vs Human music classifier with multiple algorithms.
 """
 
+import json
+import joblib
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
 from pathlib import Path
-import joblib
-import json
 from datetime import datetime
 
-from sklearn.model_selection import train_test_split, cross_val_score, GridSearchCV
+from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.ensemble import RandomForestClassifier, VotingClassifier
 from sklearn.svm import SVC
 from sklearn.neural_network import MLPClassifier
 from sklearn.metrics import (
-    classification_report, confusion_matrix,
-    accuracy_score, precision_recall_fscore_support,
-    roc_auc_score, roc_curve
+    accuracy_score,
+    precision_recall_fscore_support,
+    roc_auc_score,
 )
 import xgboost as xgb
-import matplotlib.pyplot as plt
-import seaborn as sns
 
 
 class MusicAIDetectorTrainer:
@@ -42,10 +35,11 @@ class MusicAIDetectorTrainer:
         self.best_model = None
         self.best_model_name = None
         self.feature_importance = None
+        self.feature_names = None
 
     def load_data(self):
         """
-        İşlenmiş veri setini yükle
+        Load processed dataset.
         """
         features_file = self.processed_dir / "features.csv"
 
@@ -57,19 +51,26 @@ class MusicAIDetectorTrainer:
 
         df = pd.read_csv(features_file)
 
-        # Features ve labels ayır
-        X = df.drop('label', axis=1)
-        y = df['label']
+        # Features and labels
+        X = df.drop("label", axis=1)
+        y = df["label"]
+        self.feature_names = list(X.columns)
 
         print(f"Dataset loaded: {len(df)} samples, {len(X.columns)} features")
         print(f"  AI samples: {sum(y)}")
         print(f"  Human samples: {len(y) - sum(y)}")
 
+        # Basic class balance check
+        if y.nunique() < 2:
+            raise ValueError("Dataset must contain at least two classes (AI and Human).")
+        if min(y.value_counts()) < 2:
+            raise ValueError("Each class must have at least 2 samples for a split.")
+
         return X, y
 
     def train_all_models(self, X, y, test_size=0.2):
         """
-        Tüm modelleri eğit ve karşılaştır
+        Train and compare multiple models.
         """
         # Train-test split
         X_train, X_test, y_train, y_test = train_test_split(
@@ -94,10 +95,10 @@ class MusicAIDetectorTrainer:
             min_samples_split=5,
             min_samples_leaf=2,
             random_state=42,
-            n_jobs=-1
+            n_jobs=-1,
         )
         rf_model.fit(X_train_scaled, y_train)
-        results['Random Forest'] = self._evaluate_model(
+        results["Random Forest"] = self._evaluate_model(
             rf_model, X_test_scaled, y_test, "Random Forest"
         )
 
@@ -109,24 +110,24 @@ class MusicAIDetectorTrainer:
             learning_rate=0.1,
             random_state=42,
             use_label_encoder=False,
-            eval_metric='logloss'
+            eval_metric="logloss",
         )
         xgb_model.fit(X_train_scaled, y_train)
-        results['XGBoost'] = self._evaluate_model(
+        results["XGBoost"] = self._evaluate_model(
             xgb_model, X_test_scaled, y_test, "XGBoost"
         )
 
         # 3. SVM
         print("\n[3/5] Training SVM...")
         svm_model = SVC(
-            kernel='rbf',
+            kernel="rbf",
             C=10,
-            gamma='scale',
+            gamma="scale",
             probability=True,
-            random_state=42
+            random_state=42,
         )
         svm_model.fit(X_train_scaled, y_train)
-        results['SVM'] = self._evaluate_model(
+        results["SVM"] = self._evaluate_model(
             svm_model, X_test_scaled, y_test, "SVM"
         )
 
@@ -134,14 +135,14 @@ class MusicAIDetectorTrainer:
         print("\n[4/5] Training Neural Network...")
         nn_model = MLPClassifier(
             hidden_layer_sizes=(128, 64, 32),
-            activation='relu',
-            solver='adam',
+            activation="relu",
+            solver="adam",
             max_iter=500,
             random_state=42,
-            early_stopping=True
+            early_stopping=True,
         )
         nn_model.fit(X_train_scaled, y_train)
-        results['Neural Network'] = self._evaluate_model(
+        results["Neural Network"] = self._evaluate_model(
             nn_model, X_test_scaled, y_test, "Neural Network"
         )
 
@@ -149,42 +150,42 @@ class MusicAIDetectorTrainer:
         print("\n[5/5] Training Ensemble (Voting)...")
         ensemble_model = VotingClassifier(
             estimators=[
-                ('rf', rf_model),
-                ('xgb', xgb_model),
-                ('svm', svm_model),
-                ('nn', nn_model)
+                ("rf", rf_model),
+                ("xgb", xgb_model),
+                ("svm", svm_model),
+                ("nn", nn_model),
             ],
-            voting='soft'
+            voting="soft",
         )
         ensemble_model.fit(X_train_scaled, y_train)
-        results['Ensemble'] = self._evaluate_model(
+        results["Ensemble"] = self._evaluate_model(
             ensemble_model, X_test_scaled, y_test, "Ensemble"
         )
 
-        # En iyi modeli seç
-        best_accuracy = 0
+        # Choose best model
+        best_accuracy = -1
         for model_name, metrics in results.items():
-            if metrics['accuracy'] > best_accuracy:
-                best_accuracy = metrics['accuracy']
+            if metrics["accuracy"] > best_accuracy:
+                best_accuracy = metrics["accuracy"]
                 self.best_model_name = model_name
 
-        if self.best_model_name == 'Random Forest':
+        if self.best_model_name == "Random Forest":
             self.best_model = rf_model
-        elif self.best_model_name == 'XGBoost':
+        elif self.best_model_name == "XGBoost":
             self.best_model = xgb_model
-        elif self.best_model_name == 'SVM':
+        elif self.best_model_name == "SVM":
             self.best_model = svm_model
-        elif self.best_model_name == 'Neural Network':
+        elif self.best_model_name == "Neural Network":
             self.best_model = nn_model
         else:
             self.best_model = ensemble_model
 
-        # Feature importance (eğer varsa)
-        if hasattr(self.best_model, 'feature_importances_'):
+        # Feature importance (if available)
+        if hasattr(self.best_model, "feature_importances_"):
             self.feature_importance = pd.DataFrame({
-                'feature': X.columns,
-                'importance': self.best_model.feature_importances_
-            }).sort_values('importance', ascending=False)
+                "feature": X.columns,
+                "importance": self.best_model.feature_importances_,
+            }).sort_values("importance", ascending=False)
 
         # Summary
         self._print_summary(results)
@@ -193,49 +194,53 @@ class MusicAIDetectorTrainer:
 
     def _evaluate_model(self, model, X_test, y_test, model_name):
         """
-        Model performansını değerlendir
+        Evaluate model performance.
         """
         y_pred = model.predict(X_test)
         y_pred_proba = model.predict_proba(X_test)[:, 1]
 
         accuracy = accuracy_score(y_test, y_pred)
         precision, recall, f1, _ = precision_recall_fscore_support(
-            y_test, y_pred, average='binary'
+            y_test, y_pred, average="binary", zero_division=0
         )
-        auc = roc_auc_score(y_test, y_pred_proba)
+
+        try:
+            auc = roc_auc_score(y_test, y_pred_proba)
+        except ValueError:
+            auc = None
 
         print(f"{model_name} Results:")
         print(f"  Accuracy:  {accuracy:.4f}")
         print(f"  Precision: {precision:.4f}")
         print(f"  Recall:    {recall:.4f}")
         print(f"  F1 Score:  {f1:.4f}")
-        print(f"  AUC:       {auc:.4f}")
+        print(f"  AUC:       {auc:.4f}" if auc is not None else "  AUC:       N/A")
 
         return {
-            'accuracy': accuracy,
-            'precision': precision,
-            'recall': recall,
-            'f1': f1,
-            'auc': auc,
-            'y_pred': y_pred,
-            'y_pred_proba': y_pred_proba
+            "accuracy": accuracy,
+            "precision": precision,
+            "recall": recall,
+            "f1": f1,
+            "auc": auc,
+            "y_pred": y_pred,
+            "y_pred_proba": y_pred_proba,
         }
 
     def _print_summary(self, results):
         """
-        Tüm modellerin özeti
+        Summary of all models.
         """
         print("\n" + "=" * 60)
         print("MODEL COMPARISON")
         print("=" * 60)
 
         summary_df = pd.DataFrame({
-            'Model': list(results.keys()),
-            'Accuracy': [r['accuracy'] for r in results.values()],
-            'Precision': [r['precision'] for r in results.values()],
-            'Recall': [r['recall'] for r in results.values()],
-            'F1': [r['f1'] for r in results.values()],
-            'AUC': [r['auc'] for r in results.values()]
+            "Model": list(results.keys()),
+            "Accuracy": [r["accuracy"] for r in results.values()],
+            "Precision": [r["precision"] for r in results.values()],
+            "Recall": [r["recall"] for r in results.values()],
+            "F1": [r["f1"] for r in results.values()],
+            "AUC": [r["auc"] for r in results.values()],
         })
 
         print(summary_df.to_string(index=False))
@@ -243,43 +248,46 @@ class MusicAIDetectorTrainer:
 
     def save_model(self):
         """
-        En iyi modeli kaydet
+        Save the best model and scaler + metadata.
         """
         if self.best_model is None:
             raise ValueError("No model trained yet!")
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-        # Model kaydet
+        # Save model
         model_file = self.models_dir / f"model_{timestamp}.pkl"
         scaler_file = self.models_dir / f"scaler_{timestamp}.pkl"
 
         joblib.dump(self.best_model, model_file)
         joblib.dump(self.scaler, scaler_file)
 
-        # Latest symlink
+        # Latest copies (Windows friendly)
+        import shutil
         latest_model = self.models_dir / "latest_model.pkl"
         latest_scaler = self.models_dir / "latest_scaler.pkl"
-
-        # Windows'da copy kullan (symlink yerine)
-        import shutil
         shutil.copy(model_file, latest_model)
         shutil.copy(scaler_file, latest_scaler)
 
-        # Metadata kaydet
+        # Metadata
         metadata = {
-            'model_name': self.best_model_name,
-            'timestamp': timestamp,
-            'model_file': str(model_file),
-            'scaler_file': str(scaler_file)
+            "model_name": self.best_model_name,
+            "timestamp": timestamp,
+            "model_file": str(model_file),
+            "scaler_file": str(scaler_file),
+            "feature_names": self.feature_names,
         }
 
         if self.feature_importance is not None:
-            metadata['top_features'] = self.feature_importance.head(10).to_dict('records')
+            metadata["top_features"] = self.feature_importance.head(10).to_dict("records")
 
         metadata_file = self.models_dir / f"metadata_{timestamp}.json"
-        with open(metadata_file, 'w') as f:
+        with open(metadata_file, "w", encoding="utf-8") as f:
             json.dump(metadata, f, indent=2)
+
+        # Keep a "latest" metadata for inference alignment
+        latest_metadata = self.models_dir / "latest_metadata.json"
+        shutil.copy(metadata_file, latest_metadata)
 
         print(f"\nModel saved:")
         print(f"  Model: {model_file}")
@@ -290,7 +298,7 @@ class MusicAIDetectorTrainer:
 
     def plot_feature_importance(self, top_n=20):
         """
-        Feature importance plot
+        Plot feature importance.
         """
         if self.feature_importance is None:
             print("Feature importance not available for this model")
@@ -299,14 +307,14 @@ class MusicAIDetectorTrainer:
         plt.figure(figsize=(12, 8))
         top_features = self.feature_importance.head(top_n)
 
-        plt.barh(range(len(top_features)), top_features['importance'])
-        plt.yticks(range(len(top_features)), top_features['feature'])
-        plt.xlabel('Importance')
-        plt.title(f'Top {top_n} Feature Importance - {self.best_model_name}')
+        plt.barh(range(len(top_features)), top_features["importance"])
+        plt.yticks(range(len(top_features)), top_features["feature"])
+        plt.xlabel("Importance")
+        plt.title(f"Top {top_n} Feature Importance - {self.best_model_name}")
         plt.tight_layout()
 
         plot_file = self.models_dir / "feature_importance.png"
-        plt.savefig(plot_file, dpi=150, bbox_inches='tight')
+        plt.savefig(plot_file, dpi=150, bbox_inches="tight")
         print(f"\nFeature importance plot saved: {plot_file}")
 
         plt.close()
@@ -314,17 +322,17 @@ class MusicAIDetectorTrainer:
 
 def main():
     """
-    Ana eğitim pipeline
+    Main training pipeline.
     """
     trainer = MusicAIDetectorTrainer()
 
-    # Veri yükle
+    # Load data
     X, y = trainer.load_data()
 
-    # Tüm modelleri eğit
+    # Train all models
     results, X_test, y_test = trainer.train_all_models(X, y)
 
-    # Modeli kaydet
+    # Save model
     trainer.save_model()
 
     # Feature importance plot
