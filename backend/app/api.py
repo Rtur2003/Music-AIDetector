@@ -2,11 +2,16 @@
 Minimal FastAPI adapter for Music AI Detector (test-only).
 """
 
-from fastapi import FastAPI, UploadFile, File, HTTPException
-from fastapi.responses import JSONResponse
-from starlette.concurrency import run_in_threadpool
+import asyncio
+import time
+from collections import defaultdict
 from pathlib import Path
 from uuid import uuid4
+
+from fastapi import FastAPI, UploadFile, File, HTTPException, Request
+from fastapi.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
+import soundfile as sf
 
 try:
     # Preferred when installed as a package
@@ -26,10 +31,21 @@ except Exception as e:
     model_loaded = False
     predictor = None
 
-# Upload directory
+# Upload directory and limits
 UPLOAD_DIR = Path("backend/uploads")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 MAX_UPLOAD_MB = 25
+MAX_DURATION_SEC = 600  # 10 minutes
+MAX_CHANNELS = 2
+
+# Simple in-memory rate limit (per-process)
+RATE_LIMIT_WINDOW_SEC = 60
+RATE_LIMIT_MAX_REQUESTS = 30
+_rate_limit_hits = defaultdict(list)
+_rate_limit_lock = asyncio.Lock()
+
+# Concurrency guard for heavy vocal separation
+VOCAL_SEP_SEMAPHORE = asyncio.Semaphore(2)
 
 
 @app.get("/")
@@ -57,6 +73,7 @@ def health():
 
 @app.post("/predict")
 async def predict_music(
+    request: Request,
     file: UploadFile = File(...),
     separate_vocals: bool = False,
 ):
@@ -76,6 +93,20 @@ async def predict_music(
             status_code=400,
             detail=f"Unsupported file format. Allowed: {allowed_extensions}",
         )
+
+    # Rate limit check
+    client_id = request.client.host if request.client else "unknown"
+    now = time.time()
+    async with _rate_limit_lock:
+        hits = _rate_limit_hits[client_id]
+        # prune old hits
+        _rate_limit_hits[client_id] = [t for t in hits if now - t < RATE_LIMIT_WINDOW_SEC]
+        if len(_rate_limit_hits[client_id]) >= RATE_LIMIT_MAX_REQUESTS:
+            raise HTTPException(
+                status_code=429,
+                detail="Too many requests. Please slow down.",
+            )
+        _rate_limit_hits[client_id].append(now)
 
     # Save uploaded file with a safe random name
     target_name = f"{uuid4().hex}{file_ext or '.bin'}"
@@ -97,12 +128,39 @@ async def predict_music(
                     )
                 buffer.write(chunk)
 
-        # Heavy sync work -> run in threadpool to avoid blocking the event loop
-        result = await run_in_threadpool(
-            predictor.predict,
-            str(file_path),
-            separate_vocals=separate_vocals,
-        )
+        # Basic audio sanity: duration / channels
+        try:
+            with sf.SoundFile(str(file_path)) as snd:
+                duration_sec = len(snd) / float(snd.samplerate)
+                if duration_sec > MAX_DURATION_SEC:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"File too long ({duration_sec:.0f}s). Max {MAX_DURATION_SEC}s allowed.",
+                    )
+                if snd.channels > MAX_CHANNELS:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Too many channels ({snd.channels}). Max {MAX_CHANNELS} allowed.",
+                    )
+        except HTTPException:
+            raise
+        except Exception as err:
+            raise HTTPException(status_code=400, detail=f"Unreadable audio file: {err}")
+
+        # Heavy sync work -> run in threadpool (with optional vocal-separation guard)
+        if separate_vocals:
+            async with VOCAL_SEP_SEMAPHORE:
+                result = await run_in_threadpool(
+                    predictor.predict,
+                    str(file_path),
+                    separate_vocals=separate_vocals,
+                )
+        else:
+            result = await run_in_threadpool(
+                predictor.predict,
+                str(file_path),
+                separate_vocals=separate_vocals,
+            )
 
         return JSONResponse(content=result)
 
