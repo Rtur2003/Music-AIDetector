@@ -2,6 +2,7 @@
 Minimal FastAPI adapter for Music AI Detector (test-only).
 """
 
+import os
 import asyncio
 import time
 from collections import defaultdict
@@ -31,21 +32,22 @@ except Exception as e:
     model_loaded = False
     predictor = None
 
-# Upload directory and limits
-UPLOAD_DIR = Path("backend/uploads")
+# Upload directory and limits (env configurable)
+UPLOAD_DIR = Path(os.getenv("MUSIC_API_UPLOAD_DIR", "backend/uploads"))
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-MAX_UPLOAD_MB = 25
-MAX_DURATION_SEC = 600  # 10 minutes
-MAX_CHANNELS = 2
+MAX_UPLOAD_MB = int(os.getenv("MUSIC_API_MAX_UPLOAD_MB", "25"))
+MAX_DURATION_SEC = int(os.getenv("MUSIC_API_MAX_DURATION_SEC", "600"))
+MAX_CHANNELS = int(os.getenv("MUSIC_API_MAX_CHANNELS", "2"))
 
-# Simple in-memory rate limit (per-process)
-RATE_LIMIT_WINDOW_SEC = 60
-RATE_LIMIT_MAX_REQUESTS = 30
+# Simple in-memory rate limit (per-process, env configurable)
+RATE_LIMIT_WINDOW_SEC = int(os.getenv("MUSIC_API_RATE_WINDOW_SEC", "60"))
+RATE_LIMIT_MAX_REQUESTS = int(os.getenv("MUSIC_API_RATE_MAX", "30"))
 _rate_limit_hits = defaultdict(list)
 _rate_limit_lock = asyncio.Lock()
 
 # Concurrency guard for heavy vocal separation
-VOCAL_SEP_SEMAPHORE = asyncio.Semaphore(2)
+VOCAL_SEP_CONCURRENCY = int(os.getenv("MUSIC_API_VOCAL_SEP_CONCURRENCY", "2"))
+VOCAL_SEP_SEMAPHORE = asyncio.Semaphore(VOCAL_SEP_CONCURRENCY)
 
 
 @app.get("/")
