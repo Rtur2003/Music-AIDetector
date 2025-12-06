@@ -1,12 +1,18 @@
 """
-Minimal API - Sadece test için
+Minimal FastAPI adapter for Music AI Detector (test-only).
 """
 
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse
-import shutil
+from starlette.concurrency import run_in_threadpool
 from pathlib import Path
-from predictor import MusicAIPredictor
+from uuid import uuid4
+
+try:
+    # Preferred when installed as a package
+    from .predictor import MusicAIPredictor
+except Exception:  # pragma: no cover - fallback for direct script usage
+    from predictor import MusicAIPredictor
 import uvicorn
 
 app = FastAPI(title="Music AI Detector API", version="1.0.0")
@@ -23,90 +29,92 @@ except Exception as e:
 # Upload directory
 UPLOAD_DIR = Path("backend/uploads")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+MAX_UPLOAD_MB = 25
 
 
 @app.get("/")
 def root():
-    """API bilgisi"""
+    """Basic API info."""
     return {
         "name": "Music AI Detector API",
         "version": "1.0.0",
         "model_loaded": model_loaded,
         "endpoints": {
             "predict": "/predict",
-            "health": "/health"
-        }
+            "health": "/health",
+        },
     }
 
 
 @app.get("/health")
 def health():
-    """Health check"""
+    """Health check."""
     return {
         "status": "ok",
-        "model_loaded": model_loaded
+        "model_loaded": model_loaded,
     }
 
 
 @app.post("/predict")
 async def predict_music(
     file: UploadFile = File(...),
-    separate_vocals: bool = True
+    separate_vocals: bool = False,
 ):
     """
-    Müzik dosyasını analiz et
-
-    Args:
-        file: Müzik dosyası (mp3, wav, etc.)
-        separate_vocals: Vocal'leri ayır mı?
-
-    Returns:
-        {
-            "prediction": "AI" veya "Human",
-            "confidence": güven skoru,
-            "ai_probability": AI olasılığı,
-            "human_probability": Human olasılığı
-        }
+    Analyze a music file and predict AI vs Human.
     """
     if not model_loaded:
         raise HTTPException(
             status_code=503,
-            detail="Model not loaded. Please train the model first."
+            detail="Model not loaded. Please train the model first.",
         )
 
-    # Dosya kontrolü
-    allowed_extensions = ['.mp3', '.wav', '.flac', '.ogg', '.m4a']
-    file_ext = Path(file.filename).suffix.lower()
-
+    allowed_extensions = [".mp3", ".wav", ".flac", ".ogg", ".m4a"]
+    file_ext = Path(file.filename or "").suffix.lower()
     if file_ext not in allowed_extensions:
         raise HTTPException(
             status_code=400,
-            detail=f"Unsupported file format. Allowed: {allowed_extensions}"
+            detail=f"Unsupported file format. Allowed: {allowed_extensions}",
         )
 
-    # Dosyayı kaydet
-    file_path = UPLOAD_DIR / file.filename
+    # Save uploaded file with a safe random name
+    target_name = f"{uuid4().hex}{file_ext or '.bin'}"
+    file_path = UPLOAD_DIR / target_name
+    max_bytes = MAX_UPLOAD_MB * 1024 * 1024
+    bytes_written = 0
+
     try:
         with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                bytes_written += len(chunk)
+                if bytes_written > max_bytes:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"File too large. Max {MAX_UPLOAD_MB} MB allowed.",
+                    )
+                buffer.write(chunk)
 
-        # Predict
-        result = predictor.predict(str(file_path), separate_vocals=separate_vocals)
-
-        # Cleanup (opsiyonel)
-        # file_path.unlink()
+        # Heavy sync work -> run in threadpool to avoid blocking the event loop
+        result = await run_in_threadpool(
+            predictor.predict,
+            str(file_path),
+            separate_vocals=separate_vocals,
+        )
 
         return JSONResponse(content=result)
 
+    except HTTPException:
+        raise
     except Exception as e:
-        # Cleanup on error
-        if file_path.exists():
-            file_path.unlink()
-
         raise HTTPException(
             status_code=500,
-            detail=f"Error processing file: {str(e)}"
+            detail=f"Error processing file: {str(e)}",
         )
+    finally:
+        file_path.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":
