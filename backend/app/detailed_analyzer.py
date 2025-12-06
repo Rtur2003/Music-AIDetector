@@ -10,9 +10,15 @@ import json
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 import seaborn as sns
-from vocal_separator import VocalSeparator
-from feature_extractor import MusicFeatureExtractor
 from datetime import datetime
+
+try:
+    # Preferred when used as a package
+    from .vocal_separator import VocalSeparator
+    from .feature_extractor import MusicFeatureExtractor
+except Exception:  # pragma: no cover - fallback for direct script usage
+    from vocal_separator import VocalSeparator
+    from feature_extractor import MusicFeatureExtractor
 
 
 class DetailedMusicAnalyzer:
