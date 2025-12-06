@@ -59,6 +59,15 @@ def root():
         "name": "Music AI Detector API",
         "version": "1.0.0",
         "model_loaded": model_loaded,
+        "feature_extractor_version": getattr(predictor, "metadata_version", FEATURE_EXTRACTOR_VERSION),
+        "limits": {
+            "max_upload_mb": MAX_UPLOAD_MB,
+            "max_duration_sec": MAX_DURATION_SEC,
+            "max_channels": MAX_CHANNELS,
+            "rate_limit_window_sec": RATE_LIMIT_WINDOW_SEC,
+            "rate_limit_max": RATE_LIMIT_MAX_REQUESTS,
+            "vocal_sep_concurrency": VOCAL_SEP_CONCURRENCY,
+        },
         "endpoints": {
             "predict": "/predict",
             "health": "/health",
