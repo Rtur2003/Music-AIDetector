@@ -48,6 +48,7 @@ class MusicAIPredictor:
 
         # Read training metadata (feature ordering)
         self.feature_names = None
+        self.metadata_version = None
         metadata_path = models_dir / "latest_metadata.json"
         if not metadata_path.exists() and model_path.name.startswith("model_"):
             ts = model_path.stem.replace("model_", "")
@@ -60,6 +61,7 @@ class MusicAIPredictor:
                 with open(metadata_path, "r", encoding="utf-8") as f:
                     metadata = json.load(f)
                     self.feature_names = metadata.get("feature_names")
+                    self.metadata_version = metadata.get("feature_extractor_version")
             except Exception as err:
                 print(f"Warning: Could not read metadata ({metadata_path}): {err}")
 
