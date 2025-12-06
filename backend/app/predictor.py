@@ -162,6 +162,9 @@ class MusicAIPredictor:
         print("PREDICTION EXPLANATION")
         print("=" * 60)
         print(f"File: {audio_path}")
+        if self.metadata_version:
+            print(f"Feature extractor version (model): {self.metadata_version}")
+            print(f"Feature extractor version (runtime): {FEATURE_EXTRACTOR_VERSION}")
         print(f"Prediction: {result['prediction']}")
         print(f"Confidence: {result['confidence']:.2%}")
         print(f"  - AI probability: {result['ai_probability']:.2%}")
