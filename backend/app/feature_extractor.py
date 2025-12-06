@@ -10,6 +10,9 @@ from scipy import stats
 
 warnings.filterwarnings("ignore")
 
+# Increment when feature definitions change
+FEATURE_EXTRACTOR_VERSION = "1.0.0"
+
 
 class MusicFeatureExtractor:
     def __init__(self, sr=22050):
