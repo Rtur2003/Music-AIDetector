@@ -334,6 +334,18 @@ class MusicAIDetectorTrainer:
             "feature_extractor_version": FEATURE_EXTRACTOR_VERSION,
         }
 
+        if self.best_model_name and self.results.get(self.best_model_name):
+            best_metrics = self.results[self.best_model_name]
+            metadata["metrics"] = {
+                "accuracy": best_metrics.get("accuracy"),
+                "precision": best_metrics.get("precision"),
+                "recall": best_metrics.get("recall"),
+                "f1": best_metrics.get("f1"),
+                "auc": best_metrics.get("auc"),
+            }
+        if self.best_model_name and self.cv_results.get(self.best_model_name):
+            metadata["cv"] = self.cv_results[self.best_model_name]
+
         if self.feature_importance is not None:
             metadata["top_features"] = self.feature_importance.head(10).to_dict("records")
 
