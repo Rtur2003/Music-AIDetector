@@ -8,6 +8,11 @@ import librosa
 import numpy as np
 from scipy import stats
 
+try:
+    from .config import get_config
+except ImportError:
+    from config import get_config
+
 warnings.filterwarnings("ignore")
 
 # Increment when feature definitions change
@@ -15,8 +20,9 @@ FEATURE_EXTRACTOR_VERSION = "1.0.0"
 
 
 class MusicFeatureExtractor:
-    def __init__(self, sr=22050):
-        self.sr = sr
+    def __init__(self, sr=None):
+        cfg = get_config()
+        self.sr = sr if sr is not None else cfg.sample_rate
         self.eps = 1e-10
 
     def extract_all_features(self, audio_path):
