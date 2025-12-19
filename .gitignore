@@ -1,3 +1,5 @@
 /.claude
 /QUICKSTART.md
 /WORKFLOW.md
+*.env
+!.env.example
