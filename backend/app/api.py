@@ -18,11 +18,14 @@ try:
     # Preferred when installed as a package
     from .predictor import MusicAIPredictor
     from .feature_extractor import FEATURE_EXTRACTOR_VERSION
+    from .config import get_config
 except Exception:  # pragma: no cover - fallback for direct script usage
     from predictor import MusicAIPredictor
     from feature_extractor import FEATURE_EXTRACTOR_VERSION
+    from config import get_config
 import uvicorn
 
+cfg = get_config()
 app = FastAPI(title="Music AI Detector API", version="1.0.0")
 
 # Predictor instance
@@ -35,7 +38,7 @@ except Exception as e:
     predictor = None
 
 # Upload directory and limits (env configurable)
-UPLOAD_DIR = Path(os.getenv("MUSIC_API_UPLOAD_DIR", "backend/uploads"))
+UPLOAD_DIR = cfg.uploads_dir
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 MAX_UPLOAD_MB = int(os.getenv("MUSIC_API_MAX_UPLOAD_MB", "25"))
 MAX_DURATION_SEC = int(os.getenv("MUSIC_API_MAX_DURATION_SEC", "600"))
