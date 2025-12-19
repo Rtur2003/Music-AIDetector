@@ -13,9 +13,11 @@ try:
     # Preferred when used as a package
     from .vocal_separator import VocalSeparator
     from .feature_extractor import MusicFeatureExtractor, FEATURE_EXTRACTOR_VERSION
+    from .config import get_config
 except Exception:  # pragma: no cover - fallback for direct script usage
     from vocal_separator import VocalSeparator
     from feature_extractor import MusicFeatureExtractor, FEATURE_EXTRACTOR_VERSION
+    from config import get_config
 
 
 class MusicAIPredictor:
@@ -25,12 +27,13 @@ class MusicAIPredictor:
             model_path: Trained model path (None -> latest_model.pkl)
             scaler_path: Scaler path (None -> latest_scaler.pkl)
         """
-        models_dir = Path("backend/data/models")
+        cfg = get_config()
+        models_dir = cfg.models_dir
 
         if model_path is None:
-            model_path = models_dir / "latest_model.pkl"
+            model_path = cfg.latest_model_path
         if scaler_path is None:
-            scaler_path = models_dir / "latest_scaler.pkl"
+            scaler_path = cfg.latest_scaler_path
 
         # Load model and scaler
         try:
@@ -49,7 +52,7 @@ class MusicAIPredictor:
         # Read training metadata (feature ordering)
         self.feature_names = None
         self.metadata_version = None
-        metadata_path = models_dir / "latest_metadata.json"
+        metadata_path = cfg.latest_metadata_path
         if not metadata_path.exists() and model_path.name.startswith("model_"):
             ts = model_path.stem.replace("model_", "")
             candidate = models_dir / f"metadata_{ts}.json"
@@ -77,6 +80,7 @@ class MusicAIPredictor:
         """
         print(f"\nAnalyzing: {audio_path}")
 
+        cfg = get_config()
         cleanup_dir = None
 
         try:
@@ -89,7 +93,7 @@ class MusicAIPredictor:
             # 1. Vocal separation
             if separate_vocals:
                 print("  [1/3] Separating vocals...")
-                session_dir = Path(temp_dir) if temp_dir else Path("backend/temp") / f"session_{uuid4().hex}"
+                session_dir = Path(temp_dir) if temp_dir else cfg.temp_dir / f"session_{uuid4().hex}"
                 if temp_dir is None:
                     cleanup_dir = session_dir
                 result = self.separator.separate(audio_path, session_dir)
