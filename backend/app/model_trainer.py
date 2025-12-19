@@ -30,15 +30,18 @@ import xgboost as xgb
 
 try:
     from .feature_extractor import FEATURE_EXTRACTOR_VERSION
+    from .config import get_config
 except Exception:  # pragma: no cover - fallback for direct script usage
     from feature_extractor import FEATURE_EXTRACTOR_VERSION
+    from config import get_config
 
 
 class MusicAIDetectorTrainer:
-    def __init__(self, data_dir="backend/data"):
-        self.data_dir = Path(data_dir)
-        self.processed_dir = self.data_dir / "processed"
-        self.models_dir = self.data_dir / "models"
+    def __init__(self, data_dir=None):
+        cfg = get_config()
+        self.data_dir = Path(data_dir) if data_dir is not None else cfg.data_dir
+        self.processed_dir = cfg.processed_dir
+        self.models_dir = cfg.models_dir
         self.models_dir.mkdir(parents=True, exist_ok=True)
 
         self.scaler = StandardScaler()
@@ -53,7 +56,8 @@ class MusicAIDetectorTrainer:
         """
         Load processed dataset.
         """
-        features_file = self.processed_dir / "features.csv"
+        cfg = get_config()
+        features_file = cfg.features_file
 
         if not features_file.exists():
             raise FileNotFoundError(
