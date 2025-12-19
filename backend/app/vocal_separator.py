@@ -10,14 +10,20 @@ from pathlib import Path
 import subprocess
 import shutil
 
+try:
+    from .config import get_config
+except ImportError:
+    from config import get_config
+
 
 class VocalSeparator:
-    def __init__(self, model_name="htdemucs"):
+    def __init__(self, model_name=None):
         """
         Args:
             model_name: Demucs model ismi (htdemucs, htdemucs_ft, mdx_extra vb.)
         """
-        self.model_name = model_name
+        cfg = get_config()
+        self.model_name = model_name if model_name is not None else cfg.demucs_model
 
     def separate(self, audio_path, output_dir):
         """
