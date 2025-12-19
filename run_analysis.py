@@ -9,19 +9,22 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent / "backend" / "app"))
 
 from detailed_analyzer import DetailedMusicAnalyzer
+from config import get_config
 
 
 def main():
     """
     Detaylı analiz pipeline
     """
+    cfg = get_config()
+    
     print("\n" + "="*80)
     print(" "*20 + "MUSIC AI DETECTOR - DETAILED ANALYSIS")
     print("="*80)
 
     # Veri setini kontrol et
-    ai_dir = Path("backend/data/raw/ai_generated")
-    human_dir = Path("backend/data/raw/human_made")
+    ai_dir = cfg.ai_generated_dir
+    human_dir = cfg.human_made_dir
 
     if not ai_dir.exists():
         print(f"\nERROR: {ai_dir} klasörü bulunamadı!")
@@ -81,7 +84,7 @@ def main():
         print(" "*30 + "ANALİZ TAMAMLANDI!")
         print("="*80)
         print(f"\nToplam {len(analyses)} parça analiz edildi.")
-        print(f"\nRaporlar: backend/data/analysis/")
+        print(f"\nRaporlar: {cfg.analysis_dir}")
         print("  - detailed_analysis_*.json     (Her track'in detayları)")
         print("  - comparison_report_*.json     (AI vs Human istatistikleri)")
         print("  - analysis_report_*.txt        (İnsan okunabilir rapor)")
@@ -91,7 +94,7 @@ def main():
         print("\n" + "="*80)
         print("SONRAKİ ADIMLAR:")
         print("="*80)
-        print("1. Raporları inceleyin (backend/data/analysis/analysis_report_*.txt)")
+        print(f"1. Raporları inceleyin ({cfg.analysis_dir}/analysis_report_*.txt)")
         print("2. Görselleri kontrol edin (*.png dosyaları)")
         print("3. AI vs Human farkları üzerine tartışın")
         print("4. Veri setini işleyin: python backend/app/dataset_processor.py")

@@ -19,21 +19,23 @@ try:
     # Preferred when used as a package
     from .vocal_separator import VocalSeparator
     from .feature_extractor import MusicFeatureExtractor
+    from .config import get_config
 except Exception:  # pragma: no cover - fallback for direct script usage
     from vocal_separator import VocalSeparator
     from feature_extractor import MusicFeatureExtractor
+    from config import get_config
 
 
 class DatasetProcessor:
-    def __init__(self, data_dir="backend/data"):
-        self.data_dir = Path(data_dir)
-        self.raw_dir = self.data_dir / "raw"
-        self.processed_dir = self.data_dir / "processed"
-        self.temp_root = Path("backend/temp")
+    def __init__(self, data_dir=None):
+        cfg = get_config()
+        self.data_dir = Path(data_dir) if data_dir is not None else cfg.data_dir
+        self.raw_dir = cfg.raw_dir
+        self.processed_dir = cfg.processed_dir
+        self.temp_root = cfg.temp_dir
 
         # Create directories
-        self.processed_dir.mkdir(parents=True, exist_ok=True)
-        self.temp_root.mkdir(parents=True, exist_ok=True)
+        cfg.ensure_directories()
 
         self.separator = VocalSeparator()
         self.extractor = MusicFeatureExtractor()

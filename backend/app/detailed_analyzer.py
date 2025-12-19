@@ -16,14 +16,17 @@ try:
     # Preferred when used as a package
     from .vocal_separator import VocalSeparator
     from .feature_extractor import MusicFeatureExtractor
+    from .config import get_config
 except Exception:  # pragma: no cover - fallback for direct script usage
     from vocal_separator import VocalSeparator
     from feature_extractor import MusicFeatureExtractor
+    from config import get_config
 
 
 class DetailedMusicAnalyzer:
-    def __init__(self, output_dir="backend/data/analysis"):
-        self.output_dir = Path(output_dir)
+    def __init__(self, output_dir=None):
+        cfg = get_config()
+        self.output_dir = Path(output_dir) if output_dir is not None else cfg.analysis_dir
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         self.separator = VocalSeparator()
@@ -398,9 +401,10 @@ def main():
     Ana analiz fonksiyonu
     """
     analyzer = DetailedMusicAnalyzer()
+    cfg = get_config()
 
-    ai_dir = "backend/data/raw/ai_generated"
-    human_dir = "backend/data/raw/human_made"
+    ai_dir = cfg.ai_generated_dir
+    human_dir = cfg.human_made_dir
 
     print("\n" + "="*60)
     print("DETAILED MUSIC ANALYZER")
