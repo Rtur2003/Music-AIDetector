@@ -2,29 +2,36 @@
 Minimal FastAPI adapter for Music AI Detector (test-only).
 """
 
-import os
 import asyncio
+import os
 import time
 from collections import defaultdict
 from pathlib import Path
+from typing import Dict, List
 from uuid import uuid4
 
-from fastapi import FastAPI, UploadFile, File, HTTPException, Request
+import soundfile as sf
+import uvicorn
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
-import soundfile as sf
 
 try:
-    # Preferred when installed as a package
-    from .predictor import MusicAIPredictor
-    from .feature_extractor import FEATURE_EXTRACTOR_VERSION
     from .config import get_config
-except Exception:  # pragma: no cover - fallback for direct script usage
-    from predictor import MusicAIPredictor
-    from feature_extractor import FEATURE_EXTRACTOR_VERSION
+    from .feature_extractor import FEATURE_EXTRACTOR_VERSION
+    from .logging_config import get_logger
+    from .predictor import MusicAIPredictor, PredictionError
+    from .utils import ResourceManager
+    from .validators import ValidationError
+except Exception:
     from config import get_config
-import uvicorn
+    from feature_extractor import FEATURE_EXTRACTOR_VERSION
+    from logging_config import get_logger
+    from predictor import MusicAIPredictor, PredictionError
+    from utils import ResourceManager
+    from validators import ValidationError
 
+logger = get_logger(__name__)
 cfg = get_config()
 app = FastAPI(title="Music AI Detector API", version="1.0.0")
 
@@ -32,8 +39,9 @@ app = FastAPI(title="Music AI Detector API", version="1.0.0")
 try:
     predictor = MusicAIPredictor()
     model_loaded = True
+    logger.info("Model loaded successfully for API")
 except Exception as e:
-    print(f"Warning: Could not load model: {e}")
+    logger.warning(f"Could not load model: {e}")
     model_loaded = False
     predictor = None
 
@@ -47,7 +55,7 @@ MAX_CHANNELS = int(os.getenv("MUSIC_API_MAX_CHANNELS", "2"))
 # Simple in-memory rate limit (per-process, env configurable)
 RATE_LIMIT_WINDOW_SEC = int(os.getenv("MUSIC_API_RATE_WINDOW_SEC", "60"))
 RATE_LIMIT_MAX_REQUESTS = int(os.getenv("MUSIC_API_RATE_MAX", "30"))
-_rate_limit_hits = defaultdict(list)
+_rate_limit_hits: Dict[str, List[float]] = defaultdict(list)
 _rate_limit_lock = asyncio.Lock()
 
 # Concurrency guard for heavy vocal separation
@@ -56,13 +64,15 @@ VOCAL_SEP_SEMAPHORE = asyncio.Semaphore(VOCAL_SEP_CONCURRENCY)
 
 
 @app.get("/")
-def root():
+def root() -> Dict:
     """Basic API info."""
     return {
         "name": "Music AI Detector API",
         "version": "1.0.0",
         "model_loaded": model_loaded,
-        "feature_extractor_version": getattr(predictor, "metadata_version", FEATURE_EXTRACTOR_VERSION),
+        "feature_extractor_version": getattr(
+            predictor, "metadata_version", FEATURE_EXTRACTOR_VERSION
+        ),
         "limits": {
             "max_upload_mb": MAX_UPLOAD_MB,
             "max_duration_sec": MAX_DURATION_SEC,
@@ -79,7 +89,7 @@ def root():
 
 
 @app.get("/health")
-def health():
+def health() -> Dict:
     """Health check."""
     return {
         "status": "ok",
@@ -124,13 +134,14 @@ async def predict_music(
             )
         _rate_limit_hits[client_id].append(now)
 
-    # Save uploaded file with a safe random name
+    # Save uploaded file with a safe random name using context manager
     target_name = f"{uuid4().hex}{file_ext or '.bin'}"
     file_path = UPLOAD_DIR / target_name
     max_bytes = MAX_UPLOAD_MB * 1024 * 1024
     bytes_written = 0
 
     try:
+        # Write file
         with open(file_path, "wb") as buffer:
             while True:
                 chunk = await file.read(1024 * 1024)
@@ -178,31 +189,46 @@ async def predict_music(
                 separate_vocals=separate_vocals,
             )
 
+        logger.info(
+            f"Prediction complete: {result.get('prediction')} "
+            f"(confidence: {result.get('confidence', 0):.2%})"
+        )
+
         return JSONResponse(content=result)
 
     except HTTPException:
         raise
+    except PredictionError as e:
+        logger.error(f"Prediction error: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Prediction failed: {str(e)}",
+        )
     except Exception as e:
+        logger.error(f"Unexpected error: {e}")
         raise HTTPException(
             status_code=500,
             detail=f"Error processing file: {str(e)}",
         )
     finally:
-        file_path.unlink(missing_ok=True)
+        # Clean up uploaded file
+        ResourceManager.safe_remove_file(file_path)
 
 
 if __name__ == "__main__":
-    print("\n" + "=" * 60)
-    print("Music AI Detector API")
-    print("=" * 60)
-    print("Starting server on http://localhost:8000")
-    print("\nEndpoints:")
-    print("  GET  /          - API info")
-    print("  GET  /health    - Health check")
-    print("  POST /predict   - Predict if music is AI or Human")
-    print("\nExample usage:")
-    print('  curl -X POST "http://localhost:8000/predict" \\')
-    print('       -F "file=@your_music.mp3"')
-    print("=" * 60 + "\n")
+    logger.info("=" * 60)
+    logger.info("Music AI Detector API")
+    logger.info("=" * 60)
+    logger.info("Starting server on http://localhost:8000")
+    logger.info("")
+    logger.info("Endpoints:")
+    logger.info("  GET  /          - API info")
+    logger.info("  GET  /health    - Health check")
+    logger.info("  POST /predict   - Predict if music is AI or Human")
+    logger.info("")
+    logger.info("Example usage:")
+    logger.info('  curl -X POST "http://localhost:8000/predict" \\')
+    logger.info('       -F "file=@your_music.mp3"')
+    logger.info("=" * 60)
 
     uvicorn.run(app, host="0.0.0.0", port=8000)
