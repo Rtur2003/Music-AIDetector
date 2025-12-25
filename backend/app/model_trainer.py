@@ -9,12 +9,16 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 import joblib
-import matplotlib
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
 import xgboost as xgb
+
+# Set matplotlib backend before importing pyplot
+import matplotlib
+matplotlib.use("Agg")  # Use non-interactive backend
+import matplotlib.pyplot as plt
+
 from sklearn.ensemble import RandomForestClassifier, VotingClassifier
 from sklearn.metrics import (
     accuracy_score,
@@ -30,8 +34,6 @@ from sklearn.neural_network import MLPClassifier
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.svm import SVC
-
-matplotlib.use("Agg")  # Use non-interactive backend
 
 try:
     from .config import get_config

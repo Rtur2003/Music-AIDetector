@@ -3,7 +3,7 @@ Vocal Separator - Separates vocals from music files using Demucs.
 """
 
 import subprocess
-import shutil
+import sys
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -62,9 +62,9 @@ class VocalSeparator:
 
             logger.info(f"Separating vocals from: {audio_path.name}")
 
-            # Demucs command
+            # Demucs command - use sys.executable to ensure correct Python
             cmd = [
-                "python",
+                sys.executable,
                 "-m",
                 "demucs",
                 "--two-stems=vocals",  # Faster: only vocal/instrumental

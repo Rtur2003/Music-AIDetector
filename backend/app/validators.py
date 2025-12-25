@@ -16,7 +16,15 @@ class ValidationError(Exception):
 class AudioValidator:
     """Validator for audio files and parameters."""
 
+    # Supported audio file extensions
+    # Common lossless and lossy formats widely used in music production
+    # .mp3 - Most common lossy format
+    # .wav - Uncompressed lossless format
+    # .flac - Compressed lossless format
+    # .ogg - Open-source lossy format
+    # .m4a - AAC format, common in Apple ecosystem
     SUPPORTED_EXTENSIONS = {".mp3", ".wav", ".flac", ".ogg", ".m4a"}
+    
     MAX_SAMPLE_RATE = 96000
     MIN_SAMPLE_RATE = 8000
     MAX_CHANNELS = 8
