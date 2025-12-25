@@ -3,3 +3,32 @@
 /WORKFLOW.md
 *.env
 !.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Data and models
+backend/data/raw/
+backend/data/processed/
+backend/data/models/
+backend/data/analysis/
+backend/data/logs/
+backend/temp/
+backend/uploads/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

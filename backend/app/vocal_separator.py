@@ -1,132 +1,222 @@
 """
-Vocal Separator - Müzik dosyalarından vocal'i ayırıp melodiyi çıkarır
-Demucs kullanarak 4 stem'e ayırır: vocals, drums, bass, other
+Vocal Separator - Separates vocals from music files using Demucs.
 """
 
-import os
-import torch
-import torchaudio
-from pathlib import Path
 import subprocess
-import shutil
+import sys
+from pathlib import Path
+from typing import Dict, Optional
 
 try:
     from .config import get_config
+    from .logging_config import get_logger
+    from .validators import AudioValidator, ValidationError
 except ImportError:
     from config import get_config
+    from logging_config import get_logger
+    from validators import AudioValidator, ValidationError
+
+logger = get_logger(__name__)
+
+
+class VocalSeparatorError(Exception):
+    """Exception raised for vocal separation errors."""
+
+    pass
 
 
 class VocalSeparator:
-    def __init__(self, model_name=None):
+    """Separates vocals from music using Demucs."""
+
+    def __init__(self, model_name: Optional[str] = None):
         """
+        Initialize vocal separator.
+
         Args:
-            model_name: Demucs model ismi (htdemucs, htdemucs_ft, mdx_extra vb.)
+            model_name: Demucs model name (htdemucs, htdemucs_ft, mdx_extra, etc.)
         """
         cfg = get_config()
         self.model_name = model_name if model_name is not None else cfg.demucs_model
+        logger.info(f"VocalSeparator initialized with model: {self.model_name}")
 
-    def separate(self, audio_path, output_dir):
+    def separate(self, audio_path: str, output_dir: str) -> Dict[str, Path]:
         """
-        Ses dosyasını stem'lere ayırır
+        Separate audio file into vocal and instrumental stems.
 
         Args:
-            audio_path: Giriş ses dosyası yolu
-            output_dir: Çıkış klasörü
+            audio_path: Input audio file path
+            output_dir: Output directory for separated files
 
         Returns:
-            dict: Her stem için dosya yolları
+            Dictionary with paths to vocals, instrumental, and original
+
+        Raises:
+            ValidationError: If audio file is invalid
+            VocalSeparatorError: If separation fails
         """
-        audio_path = Path(audio_path)
-        output_dir = Path(output_dir)
-        output_dir.mkdir(parents=True, exist_ok=True)
-
-        # Demucs komutu
-        cmd = [
-            "python", "-m", "demucs",
-            "--two-stems=vocals",  # Sadece vocal ve instrumental ayır (daha hızlı)
-            "-n", self.model_name,
-            "-o", str(output_dir),
-            str(audio_path)
-        ]
-
         try:
-            print(f"Separating vocals from: {audio_path.name}")
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            # Validate input file
+            audio_path = AudioValidator.validate_audio_file(audio_path)
+            output_dir = Path(output_dir)
+            output_dir.mkdir(parents=True, exist_ok=True)
 
-            # Demucs çıktı yapısı: output_dir/model_name/song_name/vocals.wav
+            logger.info(f"Separating vocals from: {audio_path.name}")
+
+            # Demucs command - use sys.executable to ensure correct Python
+            cmd = [
+                sys.executable,
+                "-m",
+                "demucs",
+                "--two-stems=vocals",  # Faster: only vocal/instrumental
+                "-n",
+                self.model_name,
+                "-o",
+                str(output_dir),
+                str(audio_path),
+            ]
+
+            # Run Demucs with timeout
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=600,  # 10 minute timeout
+            )
+
+            # Demucs output structure: output_dir/model_name/song_name/vocals.wav
             song_name = audio_path.stem
             separated_dir = output_dir / self.model_name / song_name
 
+            vocals_path = separated_dir / "vocals.wav"
+            instrumental_path = separated_dir / "no_vocals.wav"
+
+            # Verify output files exist
+            if not vocals_path.exists() or not instrumental_path.exists():
+                raise VocalSeparatorError(
+                    f"Demucs separation incomplete. Expected files not found in {separated_dir}"
+                )
+
+            logger.info(f"Successfully separated: {audio_path.name}")
+
             return {
-                'vocals': separated_dir / 'vocals.wav',
-                'instrumental': separated_dir / 'no_vocals.wav',
-                'original': audio_path
+                "vocals": vocals_path,
+                "instrumental": instrumental_path,
+                "original": audio_path,
             }
 
+        except subprocess.TimeoutExpired as e:
+            error_msg = f"Demucs timeout after 10 minutes: {audio_path.name}"
+            logger.error(error_msg)
+            raise VocalSeparatorError(error_msg) from e
+
         except subprocess.CalledProcessError as e:
-            print(f"Error separating audio: {e.stderr}")
+            error_msg = f"Demucs separation failed: {e.stderr}"
+            logger.error(error_msg)
+            raise VocalSeparatorError(error_msg) from e
+
+        except ValidationError:
             raise
 
-    def get_instrumental_only(self, audio_path, output_dir):
+        except Exception as e:
+            error_msg = f"Unexpected error during separation: {e}"
+            logger.error(error_msg)
+            raise VocalSeparatorError(error_msg) from e
+
+    def get_instrumental_only(self, audio_path: str, output_dir: str) -> Path:
         """
-        Sadece instrumental (melodi) kısmını döndürür
+        Extract only the instrumental track.
 
         Args:
-            audio_path: Giriş ses dosyası
-            output_dir: Çıkış klasörü
+            audio_path: Input audio file
+            output_dir: Output directory
 
         Returns:
-            str: Instrumental dosya yolu
+            Path to instrumental file
+
+        Raises:
+            VocalSeparatorError: If separation fails
         """
         result = self.separate(audio_path, output_dir)
-        return result['instrumental']
+        return result["instrumental"]
 
 
 class SimpleStemExtractor:
     """
-    Alternatif: Daha basit bir yaklaşım - spleeter kullanmadan
-    Eğer demucs çalışmazsa bu kullanılabilir
+    Alternative approach: simple vocal reduction without Demucs.
+    Use as fallback if Demucs is not available.
     """
 
     @staticmethod
-    def extract_instrumental_basic(audio_path, output_path):
+    def extract_instrumental_basic(audio_path: str, output_path: str) -> Path:
         """
-        Basit spectral subtraction ile vocal azaltma
-        Not: Bu method demucs kadar iyi değil, sadece fallback
+        Basic vocal reduction using spectral subtraction.
+
+        Note: This method is less effective than Demucs, only use as fallback.
+
+        Args:
+            audio_path: Input audio file path
+            output_path: Output file path
+
+        Returns:
+            Path to output file
+
+        Raises:
+            VocalSeparatorError: If extraction fails
         """
-        import librosa
-        import soundfile as sf
-        import numpy as np
+        try:
+            import librosa
+            import numpy as np
+            import soundfile as sf
 
-        # Ses dosyasını yükle
-        y, sr = librosa.load(audio_path, sr=22050, mono=False)
+            logger.info(f"Basic vocal reduction for: {audio_path}")
 
-        if len(y.shape) == 1:
-            # Mono ise stereo yap
-            y = np.stack([y, y])
+            # Load audio
+            y, sr = librosa.load(audio_path, sr=22050, mono=False)
 
-        # Basit vocal reduction: center channel subtraction
-        # Stereo farkı al (vocals genelde center'da)
-        if y.shape[0] == 2:
-            # Side signal (instrumental çoğunlukla)
-            instrumental = y[0] - y[1]
-        else:
-            instrumental = y[0]
+            if len(y.shape) == 1:
+                # Mono to stereo
+                y = np.stack([y, y])
 
-        # Normalize
-        instrumental = librosa.util.normalize(instrumental)
+            # Simple vocal reduction: center channel subtraction
+            # Vocals are typically in the center channel
+            if y.shape[0] == 2:
+                # Side signal (mostly instrumental)
+                instrumental = y[0] - y[1]
+            else:
+                instrumental = y[0]
 
-        # Kaydet
-        sf.write(output_path, instrumental, sr)
-        return output_path
+            # Normalize
+            instrumental = librosa.util.normalize(instrumental)
+
+            # Save
+            output_path = Path(output_path)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            sf.write(output_path, instrumental, sr)
+
+            logger.info(f"Basic extraction saved to: {output_path}")
+            return output_path
+
+        except Exception as e:
+            error_msg = f"Basic vocal extraction failed: {e}"
+            logger.error(error_msg)
+            raise VocalSeparatorError(error_msg) from e
 
 
 if __name__ == "__main__":
+    import sys
+
     # Test
     separator = VocalSeparator()
 
-    # Örnek kullanım
+    # Example usage
     test_file = "backend/data/raw/test_song.mp3"
-    if os.path.exists(test_file):
-        result = separator.separate(test_file, "backend/temp/separated")
-        print(f"Instrumental saved to: {result['instrumental']}")
+    if Path(test_file).exists():
+        try:
+            result = separator.separate(test_file, "backend/temp/separated")
+            logger.info(f"Instrumental saved to: {result['instrumental']}")
+        except (ValidationError, VocalSeparatorError) as e:
+            logger.error(f"Separation failed: {e}")
+            sys.exit(1)
+    else:
+        logger.warning(f"Test file not found: {test_file}")
