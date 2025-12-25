@@ -3,41 +3,64 @@ Model Trainer - trains AI vs Human music classifier with multiple algorithms.
 """
 
 import json
-import joblib
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
-from pathlib import Path
+import shutil
 from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, Optional, Tuple
 
-from sklearn.model_selection import (
-    train_test_split,
-    StratifiedKFold,
-    cross_val_score,
-)
-from sklearn.preprocessing import StandardScaler
-from sklearn.pipeline import Pipeline
+import joblib
+import matplotlib
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import seaborn as sns
+import xgboost as xgb
 from sklearn.ensemble import RandomForestClassifier, VotingClassifier
-from sklearn.svm import SVC
-from sklearn.neural_network import MLPClassifier
 from sklearn.metrics import (
     accuracy_score,
     precision_recall_fscore_support,
     roc_auc_score,
 )
-import xgboost as xgb
+from sklearn.model_selection import (
+    StratifiedKFold,
+    cross_val_score,
+    train_test_split,
+)
+from sklearn.neural_network import MLPClassifier
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.svm import SVC
+
+matplotlib.use("Agg")  # Use non-interactive backend
 
 try:
-    from .feature_extractor import FEATURE_EXTRACTOR_VERSION
     from .config import get_config
-except Exception:  # pragma: no cover - fallback for direct script usage
-    from feature_extractor import FEATURE_EXTRACTOR_VERSION
+    from .feature_extractor import FEATURE_EXTRACTOR_VERSION
+    from .logging_config import get_logger
+except Exception:
     from config import get_config
+    from feature_extractor import FEATURE_EXTRACTOR_VERSION
+    from logging_config import get_logger
+
+logger = get_logger(__name__)
+
+
+class ModelTrainingError(Exception):
+    """Exception raised for model training errors."""
+
+    pass
 
 
 class MusicAIDetectorTrainer:
-    def __init__(self, data_dir=None):
+    """Trains multiple ML models for AI music detection."""
+
+    def __init__(self, data_dir: Optional[str] = None):
+        """
+        Initialize model trainer.
+
+        Args:
+            data_dir: Data directory path (None = use config default)
+        """
         cfg = get_config()
         self.data_dir = Path(data_dir) if data_dir is not None else cfg.data_dir
         self.processed_dir = cfg.processed_dir
@@ -52,35 +75,46 @@ class MusicAIDetectorTrainer:
         self.results = {}
         self.cv_results = {}
 
-    def load_data(self):
+        logger.info("MusicAIDetectorTrainer initialized")
+
+    def load_data(self) -> Tuple[pd.DataFrame, pd.Series]:
         """
         Load processed dataset.
+
+        Returns:
+            Tuple of (features DataFrame, labels Series)
+
+        Raises:
+            ModelTrainingError: If data cannot be loaded
         """
         cfg = get_config()
         features_file = cfg.features_file
 
         if not features_file.exists():
-            raise FileNotFoundError(
+            raise ModelTrainingError(
                 f"Features file not found: {features_file}\n"
                 "Run dataset_processor.py first!"
             )
 
-        df = pd.read_csv(features_file)
+        try:
+            df = pd.read_csv(features_file)
+        except Exception as e:
+            raise ModelTrainingError(f"Failed to load features file: {e}")
 
         # Features and labels
         X = df.drop("label", axis=1)
         y = df["label"]
         self.feature_names = list(X.columns)
 
-        print(f"Dataset loaded: {len(df)} samples, {len(X.columns)} features")
-        print(f"  AI samples: {sum(y)}")
-        print(f"  Human samples: {len(y) - sum(y)}")
+        logger.info(f"Dataset loaded: {len(df)} samples, {len(X.columns)} features")
+        logger.info(f"  AI samples: {sum(y)}")
+        logger.info(f"  Human samples: {len(y) - sum(y)}")
 
         # Basic class balance check
         if y.nunique() < 2:
-            raise ValueError("Dataset must contain at least two classes (AI and Human).")
+            raise ModelTrainingError("Dataset must contain at least two classes (AI and Human).")
         if min(y.value_counts()) < 2:
-            raise ValueError("Each class must have at least 2 samples for a split.")
+            raise ModelTrainingError("Each class must have at least 2 samples for a split.")
 
         return X, y
 
@@ -97,18 +131,20 @@ class MusicAIDetectorTrainer:
         X_train_scaled = self.scaler.fit_transform(X_train)
         X_test_scaled = self.scaler.transform(X_test)
 
-        print("\n" + "=" * 60)
-        print("TRAINING MODELS")
-        print("=" * 60)
+        logger.info("=" * 60)
+        logger.info("TRAINING MODELS")
+        logger.info("=" * 60)
 
         results = {}
         cv_results = {}
         cv_enabled = y.value_counts().min() >= cv_folds
         if not cv_enabled:
-            print(f"Skipping cross-validation (need at least {cv_folds} samples per class).")
+            logger.warning(
+                f"Skipping cross-validation (need at least {cv_folds} samples per class)."
+            )
 
         # 1. Random Forest
-        print("\n[1/5] Training Random Forest...")
+        logger.info("[1/5] Training Random Forest...")
         rf_model = RandomForestClassifier(
             n_estimators=200,
             max_depth=20,
@@ -125,7 +161,7 @@ class MusicAIDetectorTrainer:
             cv_results["Random Forest"] = self._cross_validate_model(rf_model, X, y, cv_folds)
 
         # 2. XGBoost
-        print("\n[2/5] Training XGBoost...")
+        logger.info("[2/5] Training XGBoost...")
         xgb_model = xgb.XGBClassifier(
             n_estimators=200,
             max_depth=10,
@@ -142,7 +178,7 @@ class MusicAIDetectorTrainer:
             cv_results["XGBoost"] = self._cross_validate_model(xgb_model, X, y, cv_folds)
 
         # 3. SVM
-        print("\n[3/5] Training SVM...")
+        logger.info("[3/5] Training SVM...")
         svm_model = SVC(
             kernel="rbf",
             C=10,
@@ -158,7 +194,7 @@ class MusicAIDetectorTrainer:
             cv_results["SVM"] = self._cross_validate_model(svm_model, X, y, cv_folds)
 
         # 4. Neural Network
-        print("\n[4/5] Training Neural Network...")
+        logger.info("[4/5] Training Neural Network...")
         nn_model = MLPClassifier(
             hidden_layer_sizes=(128, 64, 32),
             activation="relu",
@@ -175,7 +211,7 @@ class MusicAIDetectorTrainer:
             cv_results["Neural Network"] = self._cross_validate_model(nn_model, X, y, cv_folds)
 
         # 5. Ensemble (Voting)
-        print("\n[5/5] Training Ensemble (Voting)...")
+        logger.info("[5/5] Training Ensemble (Voting)...")
         ensemble_model = VotingClassifier(
             estimators=[
                 ("rf", rf_model),
@@ -243,12 +279,12 @@ class MusicAIDetectorTrainer:
         except ValueError:
             auc = None
 
-        print(f"{model_name} Results:")
-        print(f"  Accuracy:  {accuracy:.4f}")
-        print(f"  Precision: {precision:.4f}")
-        print(f"  Recall:    {recall:.4f}")
-        print(f"  F1 Score:  {f1:.4f}")
-        print(f"  AUC:       {auc:.4f}" if auc is not None else "  AUC:       N/A")
+        logger.info(f"{model_name} Results:")
+        logger.info(f"  Accuracy:  {accuracy:.4f}")
+        logger.info(f"  Precision: {precision:.4f}")
+        logger.info(f"  Recall:    {recall:.4f}")
+        logger.info(f"  F1 Score:  {f1:.4f}")
+        logger.info(f"  AUC:       {auc:.4f}" if auc is not None else "  AUC:       N/A")
 
         return {
             "accuracy": accuracy,
@@ -272,16 +308,16 @@ class MusicAIDetectorTrainer:
         scores = cross_val_score(pipeline, X, y, cv=cv, scoring="accuracy", n_jobs=-1)
         mean_score = float(scores.mean())
         std_score = float(scores.std())
-        print(f"  CV ({cv_folds} folds) accuracy: {mean_score:.4f} ± {std_score:.4f}")
+        logger.info(f"  CV ({cv_folds} folds) accuracy: {mean_score:.4f} ± {std_score:.4f}")
         return {"mean": mean_score, "std": std_score, "folds": cv_folds}
 
     def _print_summary(self, results, cv_results=None):
         """
         Summary of all models.
         """
-        print("\n" + "=" * 60)
-        print("MODEL COMPARISON")
-        print("=" * 60)
+        logger.info("=" * 60)
+        logger.info("MODEL COMPARISON")
+        logger.info("=" * 60)
 
         summary_df = pd.DataFrame({
             "Model": list(results.keys()),
@@ -292,126 +328,151 @@ class MusicAIDetectorTrainer:
             "AUC": [r["auc"] for r in results.values()],
         })
 
-        print(summary_df.to_string(index=False))
-        print(f"\nBest Model: {self.best_model_name}")
+        logger.info("\n" + summary_df.to_string(index=False))
+        logger.info(f"\nBest Model: {self.best_model_name}")
 
         if cv_results:
-            print("\nCross-Validation (accuracy)")
+            logger.info("\nCross-Validation (accuracy)")
             cv_df = pd.DataFrame({
                 "Model": list(cv_results.keys()),
                 "CV_Mean": [r["mean"] for r in cv_results.values()],
                 "CV_Std": [r["std"] for r in cv_results.values()],
                 "Folds": [r["folds"] for r in cv_results.values()],
             })
-            print(cv_df.to_string(index=False))
+            logger.info("\n" + cv_df.to_string(index=False))
 
-    def save_model(self):
+    def save_model(self) -> Tuple[Path, Path]:
         """
         Save the best model and scaler + metadata.
+
+        Returns:
+            Tuple of (model_file, scaler_file) paths
+
+        Raises:
+            ModelTrainingError: If no model trained or save fails
         """
         if self.best_model is None:
-            raise ValueError("No model trained yet!")
+            raise ModelTrainingError("No model trained yet!")
 
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        try:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-        # Save model
-        model_file = self.models_dir / f"model_{timestamp}.pkl"
-        scaler_file = self.models_dir / f"scaler_{timestamp}.pkl"
+            # Save model
+            model_file = self.models_dir / f"model_{timestamp}.pkl"
+            scaler_file = self.models_dir / f"scaler_{timestamp}.pkl"
 
-        joblib.dump(self.best_model, model_file)
-        joblib.dump(self.scaler, scaler_file)
+            joblib.dump(self.best_model, model_file)
+            joblib.dump(self.scaler, scaler_file)
 
-        # Latest copies (Windows friendly)
-        import shutil
-        latest_model = self.models_dir / "latest_model.pkl"
-        latest_scaler = self.models_dir / "latest_scaler.pkl"
-        shutil.copy(model_file, latest_model)
-        shutil.copy(scaler_file, latest_scaler)
+            # Latest copies (Windows friendly)
+            latest_model = self.models_dir / "latest_model.pkl"
+            latest_scaler = self.models_dir / "latest_scaler.pkl"
+            shutil.copy(model_file, latest_model)
+            shutil.copy(scaler_file, latest_scaler)
 
-        # Metadata
-        metadata = {
-            "model_name": self.best_model_name,
-            "timestamp": timestamp,
-            "model_file": str(model_file),
-            "scaler_file": str(scaler_file),
-            "feature_names": self.feature_names,
-            "feature_extractor_version": FEATURE_EXTRACTOR_VERSION,
-        }
-
-        if self.best_model_name and self.results.get(self.best_model_name):
-            best_metrics = self.results[self.best_model_name]
-            metadata["metrics"] = {
-                "accuracy": best_metrics.get("accuracy"),
-                "precision": best_metrics.get("precision"),
-                "recall": best_metrics.get("recall"),
-                "f1": best_metrics.get("f1"),
-                "auc": best_metrics.get("auc"),
+            # Metadata
+            metadata = {
+                "model_name": self.best_model_name,
+                "timestamp": timestamp,
+                "model_file": str(model_file),
+                "scaler_file": str(scaler_file),
+                "feature_names": self.feature_names,
+                "feature_extractor_version": FEATURE_EXTRACTOR_VERSION,
             }
-        if self.best_model_name and self.cv_results.get(self.best_model_name):
-            metadata["cv"] = self.cv_results[self.best_model_name]
 
-        if self.feature_importance is not None:
-            metadata["top_features"] = self.feature_importance.head(10).to_dict("records")
+            if self.best_model_name and self.results.get(self.best_model_name):
+                best_metrics = self.results[self.best_model_name]
+                metadata["metrics"] = {
+                    "accuracy": best_metrics.get("accuracy"),
+                    "precision": best_metrics.get("precision"),
+                    "recall": best_metrics.get("recall"),
+                    "f1": best_metrics.get("f1"),
+                    "auc": best_metrics.get("auc"),
+                }
+            if self.best_model_name and self.cv_results.get(self.best_model_name):
+                metadata["cv"] = self.cv_results[self.best_model_name]
 
-        metadata_file = self.models_dir / f"metadata_{timestamp}.json"
-        with open(metadata_file, "w", encoding="utf-8") as f:
-            json.dump(metadata, f, indent=2)
+            if self.feature_importance is not None:
+                metadata["top_features"] = self.feature_importance.head(10).to_dict("records")
 
-        # Keep a "latest" metadata for inference alignment
-        latest_metadata = self.models_dir / "latest_metadata.json"
-        shutil.copy(metadata_file, latest_metadata)
+            metadata_file = self.models_dir / f"metadata_{timestamp}.json"
+            with open(metadata_file, "w", encoding="utf-8") as f:
+                json.dump(metadata, f, indent=2)
 
-        print(f"\nModel saved:")
-        print(f"  Model: {model_file}")
-        print(f"  Scaler: {scaler_file}")
-        print(f"  Metadata: {metadata_file}")
+            # Keep a "latest" metadata for inference alignment
+            latest_metadata = self.models_dir / "latest_metadata.json"
+            shutil.copy(metadata_file, latest_metadata)
 
-        return model_file, scaler_file
+            logger.info("Model saved:")
+            logger.info(f"  Model: {model_file}")
+            logger.info(f"  Scaler: {scaler_file}")
+            logger.info(f"  Metadata: {metadata_file}")
 
-    def plot_feature_importance(self, top_n=20):
+            return model_file, scaler_file
+
+        except Exception as e:
+            raise ModelTrainingError(f"Failed to save model: {e}") from e
+
+    def plot_feature_importance(self, top_n: int = 20) -> None:
         """
         Plot feature importance.
+
+        Args:
+            top_n: Number of top features to plot
         """
         if self.feature_importance is None:
-            print("Feature importance not available for this model")
+            logger.warning("Feature importance not available for this model")
             return
 
-        plt.figure(figsize=(12, 8))
-        top_features = self.feature_importance.head(top_n)
+        try:
+            plt.figure(figsize=(12, 8))
+            top_features = self.feature_importance.head(top_n)
 
-        plt.barh(range(len(top_features)), top_features["importance"])
-        plt.yticks(range(len(top_features)), top_features["feature"])
-        plt.xlabel("Importance")
-        plt.title(f"Top {top_n} Feature Importance - {self.best_model_name}")
-        plt.tight_layout()
+            plt.barh(range(len(top_features)), top_features["importance"])
+            plt.yticks(range(len(top_features)), top_features["feature"])
+            plt.xlabel("Importance")
+            plt.title(f"Top {top_n} Feature Importance - {self.best_model_name}")
+            plt.tight_layout()
 
-        plot_file = self.models_dir / "feature_importance.png"
-        plt.savefig(plot_file, dpi=150, bbox_inches="tight")
-        print(f"\nFeature importance plot saved: {plot_file}")
+            plot_file = self.models_dir / "feature_importance.png"
+            plt.savefig(plot_file, dpi=150, bbox_inches="tight")
+            logger.info(f"Feature importance plot saved: {plot_file}")
 
-        plt.close()
+            plt.close()
+        except Exception as e:
+            logger.error(f"Failed to plot feature importance: {e}")
 
 
-def main():
+def main() -> None:
     """
     Main training pipeline.
     """
-    trainer = MusicAIDetectorTrainer()
+    try:
+        trainer = MusicAIDetectorTrainer()
 
-    # Load data
-    X, y = trainer.load_data()
+        # Load data
+        X, y = trainer.load_data()
 
-    # Train all models
-    results, X_test, y_test = trainer.train_all_models(X, y)
+        # Train all models
+        results, X_test, y_test = trainer.train_all_models(X, y)
 
-    # Save model
-    trainer.save_model()
+        # Save model
+        trainer.save_model()
 
-    # Feature importance plot
-    if trainer.feature_importance is not None:
-        trainer.plot_feature_importance()
-        print("\nTop 10 Most Important Features:")
-        print(trainer.feature_importance.head(10).to_string(index=False))
+        # Feature importance plot
+        if trainer.feature_importance is not None:
+            trainer.plot_feature_importance()
+            logger.info("\nTop 10 Most Important Features:")
+            logger.info("\n" + trainer.feature_importance.head(10).to_string(index=False))
+
+    except ModelTrainingError as e:
+        logger.error(f"Model training failed: {e}")
+        raise
+    except KeyboardInterrupt:
+        logger.info("Training cancelled by user")
+    except Exception as e:
+        logger.error(f"Unexpected error: {e}")
+        raise
 
 
 if __name__ == "__main__":
