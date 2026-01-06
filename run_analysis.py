@@ -5,9 +5,10 @@ Quick Start Script - Tüm analiz pipeline'ını tek komutla çalıştır
 import sys
 from pathlib import Path
 
-# Add backend/app to path
+# Add backend/app to path for local imports
 sys.path.insert(0, str(Path(__file__).parent / "backend" / "app"))
 
+# Local application imports (must be after path modification)
 from config import get_config
 from detailed_analyzer import DetailedMusicAnalyzer
 from logging_config import get_logger
