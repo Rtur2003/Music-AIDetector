@@ -5,11 +5,15 @@ Quick Start Script - Tüm analiz pipeline'ını tek komutla çalıştır
 import sys
 from pathlib import Path
 
-# Add backend/app to path
+# Add backend/app to path for local imports
 sys.path.insert(0, str(Path(__file__).parent / "backend" / "app"))
 
-from detailed_analyzer import DetailedMusicAnalyzer
+# Local application imports (must be after path modification)
 from config import get_config
+from detailed_analyzer import DetailedMusicAnalyzer
+from logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 def main():
@@ -17,57 +21,57 @@ def main():
     Detaylı analiz pipeline
     """
     cfg = get_config()
-    
-    print("\n" + "="*80)
-    print(" "*20 + "MUSIC AI DETECTOR - DETAILED ANALYSIS")
-    print("="*80)
+
+    logger.info("=" * 80)
+    logger.info(" " * 20 + "MUSIC AI DETECTOR - DETAILED ANALYSIS")
+    logger.info("=" * 80)
 
     # Veri setini kontrol et
     ai_dir = cfg.ai_generated_dir
     human_dir = cfg.human_made_dir
 
     if not ai_dir.exists():
-        print(f"\nERROR: {ai_dir} klasörü bulunamadı!")
-        print("Lütfen AI müziklerini bu klasöre koyun.")
+        logger.error(f"{ai_dir} klasörü bulunamadı!")
+        logger.error("Lütfen AI müziklerini bu klasöre koyun.")
         sys.exit(1)
 
     if not human_dir.exists():
-        print(f"\nERROR: {human_dir} klasörü bulunamadı!")
-        print("Lütfen insan müziklerini bu klasöre koyun.")
+        logger.error(f"{human_dir} klasörü bulunamadı!")
+        logger.error("Lütfen insan müziklerini bu klasöre koyun.")
         sys.exit(1)
 
     ai_files = list(ai_dir.glob("*.mp3")) + list(ai_dir.glob("*.wav"))
     human_files = list(human_dir.glob("*.mp3")) + list(human_dir.glob("*.wav"))
 
     if len(ai_files) == 0:
-        print(f"\nWARNING: {ai_dir} klasöründe müzik bulunamadı!")
+        logger.warning(f"{ai_dir} klasöründe müzik bulunamadı!")
 
     if len(human_files) == 0:
-        print(f"\nWARNING: {human_dir} klasöründe müzik bulunamadı!")
+        logger.warning(f"{human_dir} klasöründe müzik bulunamadı!")
 
-    print(f"\nBulunan dosyalar:")
-    print(f"  - AI müzikler: {len(ai_files)}")
-    print(f"  - Human müzikler: {len(human_files)}")
-    print(f"  - Toplam: {len(ai_files) + len(human_files)}")
+    logger.info("Bulunan dosyalar:")
+    logger.info(f"  - AI müzikler: {len(ai_files)}")
+    logger.info(f"  - Human müzikler: {len(human_files)}")
+    logger.info(f"  - Toplam: {len(ai_files) + len(human_files)}")
 
     if len(ai_files) + len(human_files) == 0:
-        print("\nHiç müzik dosyası bulunamadı. Çıkılıyor...")
+        logger.error("Hiç müzik dosyası bulunamadı. Çıkılıyor...")
         sys.exit(1)
 
-    print("\n" + "-"*80)
-    print("Bu analiz şunları yapacak:")
-    print("  1. Her müziği vocal'lerden ayıracak (Demucs)")
-    print("  2. 60+ özellik çıkaracak")
-    print("  3. AI vs Human karşılaştırması yapacak")
-    print("  4. Detaylı raporlar oluşturacak")
-    print("  5. Görselleştirmeler yapacak")
-    print("\nTahmini süre: ~1 dakika per track")
-    print(f"Toplam süre: ~{len(ai_files) + len(human_files)} dakika")
-    print("-"*80)
+    logger.info("-" * 80)
+    logger.info("Bu analiz şunları yapacak:")
+    logger.info("  1. Her müziği vocal'lerden ayıracak (Demucs)")
+    logger.info("  2. 60+ özellik çıkaracak")
+    logger.info("  3. AI vs Human karşılaştırması yapacak")
+    logger.info("  4. Detaylı raporlar oluşturacak")
+    logger.info("  5. Görselleştirmeler yapacak")
+    logger.info("Tahmini süre: ~1 dakika per track")
+    logger.info(f"Toplam süre: ~{len(ai_files) + len(human_files)} dakika")
+    logger.info("-" * 80)
 
     response = input("\nDevam etmek istiyor musunuz? (y/n): ")
     if response.lower() != 'y':
-        print("İptal edildi.")
+        logger.info("İptal edildi.")
         sys.exit(0)
 
     # Analizi başlat
@@ -80,34 +84,32 @@ def main():
             separate_vocals=True
         )
 
-        print("\n" + "="*80)
-        print(" "*30 + "ANALİZ TAMAMLANDI!")
-        print("="*80)
-        print(f"\nToplam {len(analyses)} parça analiz edildi.")
-        print(f"\nRaporlar: {cfg.analysis_dir}")
-        print("  - detailed_analysis_*.json     (Her track'in detayları)")
-        print("  - comparison_report_*.json     (AI vs Human istatistikleri)")
-        print("  - analysis_report_*.txt        (İnsan okunabilir rapor)")
-        print("  - feature_comparison_*.png     (Box plot görselleştirmeleri)")
-        print("  - correlation_heatmap_*.png    (Correlation heatmaps)")
+        logger.info("=" * 80)
+        logger.info(" " * 30 + "ANALİZ TAMAMLANDI!")
+        logger.info("=" * 80)
+        logger.info(f"Toplam {len(analyses)} parça analiz edildi.")
+        logger.info(f"Raporlar: {cfg.analysis_dir}")
+        logger.info("  - detailed_analysis_*.json     (Her track'in detayları)")
+        logger.info("  - comparison_report_*.json     (AI vs Human istatistikleri)")
+        logger.info("  - analysis_report_*.txt        (İnsan okunabilir rapor)")
+        logger.info("  - feature_comparison_*.png     (Box plot görselleştirmeleri)")
+        logger.info("  - correlation_heatmap_*.png    (Correlation heatmaps)")
 
-        print("\n" + "="*80)
-        print("SONRAKİ ADIMLAR:")
-        print("="*80)
-        print(f"1. Raporları inceleyin ({cfg.analysis_dir}/analysis_report_*.txt)")
-        print("2. Görselleri kontrol edin (*.png dosyaları)")
-        print("3. AI vs Human farkları üzerine tartışın")
-        print("4. Veri setini işleyin: python backend/app/dataset_processor.py")
-        print("5. Modeli eğitin: python backend/app/model_trainer.py")
-        print("="*80 + "\n")
+        logger.info("=" * 80)
+        logger.info("SONRAKİ ADIMLAR:")
+        logger.info("=" * 80)
+        logger.info(f"1. Raporları inceleyin ({cfg.analysis_dir}/analysis_report_*.txt)")
+        logger.info("2. Görselleri kontrol edin (*.png dosyaları)")
+        logger.info("3. AI vs Human farkları üzerine tartışın")
+        logger.info("4. Veri setini işleyin: python backend/app/dataset_processor.py")
+        logger.info("5. Modeli eğitin: python backend/app/model_trainer.py")
+        logger.info("=" * 80)
 
     except KeyboardInterrupt:
-        print("\n\nAnaliz kullanıcı tarafından durduruldu.")
+        logger.info("Analiz kullanıcı tarafından durduruldu.")
         sys.exit(1)
     except Exception as e:
-        print(f"\n\nHATA: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"HATA: {e}", exc_info=True)
         sys.exit(1)
 
 
