@@ -3,24 +3,30 @@ Detailed Analyzer - Her müziği detaylı analiz edip rapor oluşturur
 AI vs Human tartışması için tüm feature'ları gösterir
 """
 
-import pandas as pd
-import numpy as np
-from pathlib import Path
 import json
-from tqdm import tqdm
-import matplotlib.pyplot as plt
-import seaborn as sns
 from datetime import datetime
+from pathlib import Path
+
+import matplotlib
+matplotlib.use("Agg")  # Use non-interactive backend
+import matplotlib.pyplot as plt
+import pandas as pd
+import seaborn as sns
+from tqdm import tqdm
 
 try:
     # Preferred when used as a package
-    from .vocal_separator import VocalSeparator
-    from .feature_extractor import MusicFeatureExtractor
     from .config import get_config
+    from .feature_extractor import MusicFeatureExtractor
+    from .logging_config import get_logger
+    from .vocal_separator import VocalSeparator
 except Exception:  # pragma: no cover - fallback for direct script usage
-    from vocal_separator import VocalSeparator
-    from feature_extractor import MusicFeatureExtractor
     from config import get_config
+    from feature_extractor import MusicFeatureExtractor
+    from logging_config import get_logger
+    from vocal_separator import VocalSeparator
+
+logger = get_logger(__name__)
 
 
 class DetailedMusicAnalyzer:
@@ -40,10 +46,10 @@ class DetailedMusicAnalyzer:
             dict: Tüm analizler
         """
         audio_path = Path(audio_path)
-        print(f"\n{'='*60}")
-        print(f"Analyzing: {audio_path.name}")
-        print(f"Category: {category}")
-        print(f"{'='*60}")
+        logger.info("=" * 60)
+        logger.info(f"Analyzing: {audio_path.name}")
+        logger.info(f"Category: {category}")
+        logger.info("=" * 60)
 
         analysis = {
             'filename': audio_path.name,
@@ -54,7 +60,7 @@ class DetailedMusicAnalyzer:
 
         # 1. Vocal Separation
         if separate_vocals:
-            print("\n[1/2] Separating audio components...")
+            logger.info("[1/2] Separating audio components...")
             try:
                 sep_result = self.separator.separate(audio_path, self.output_dir / "separated")
                 analysis['separated_files'] = {
@@ -64,14 +70,14 @@ class DetailedMusicAnalyzer:
                 # Instrumental'ı analiz et
                 audio_to_analyze = sep_result['instrumental']
             except Exception as e:
-                print(f"Warning: Vocal separation failed: {e}")
+                logger.warning(f"Vocal separation failed: {e}")
                 audio_to_analyze = audio_path
                 analysis['separated_files'] = None
         else:
             audio_to_analyze = audio_path
 
         # 2. Feature Extraction
-        print("\n[2/2] Extracting features...")
+        logger.info("[2/2] Extracting features...")
         features = self.extractor.extract_all_features(str(audio_to_analyze))
         analysis['features'] = features
 
@@ -123,35 +129,35 @@ class DetailedMusicAnalyzer:
         ai_dir = Path(ai_dir)
         human_dir = Path(human_dir)
 
-        print("\n" + "="*60)
-        print("DETAILED DATASET ANALYSIS")
-        print("="*60)
+        logger.info("=" * 60)
+        logger.info("DETAILED DATASET ANALYSIS")
+        logger.info("=" * 60)
 
         all_analyses = []
 
         # AI müzikleri
         if ai_dir.exists():
             ai_files = list(ai_dir.glob("*.mp3")) + list(ai_dir.glob("*.wav"))
-            print(f"\nFound {len(ai_files)} AI tracks")
+            logger.info(f"Found {len(ai_files)} AI tracks")
 
             for audio_file in tqdm(ai_files, desc="Analyzing AI tracks"):
                 try:
                     analysis = self.analyze_single_track(audio_file, "AI", separate_vocals)
                     all_analyses.append(analysis)
                 except Exception as e:
-                    print(f"Error analyzing {audio_file.name}: {e}")
+                    logger.error(f"Error analyzing {audio_file.name}: {e}")
 
         # Human müzikler
         if human_dir.exists():
             human_files = list(human_dir.glob("*.mp3")) + list(human_dir.glob("*.wav"))
-            print(f"\nFound {len(human_files)} Human tracks")
+            logger.info(f"Found {len(human_files)} Human tracks")
 
             for audio_file in tqdm(human_files, desc="Analyzing Human tracks"):
                 try:
                     analysis = self.analyze_single_track(audio_file, "Human", separate_vocals)
                     all_analyses.append(analysis)
                 except Exception as e:
-                    print(f"Error analyzing {audio_file.name}: {e}")
+                    logger.error(f"Error analyzing {audio_file.name}: {e}")
 
         # Sonuçları kaydet
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -160,7 +166,7 @@ class DetailedMusicAnalyzer:
         with open(output_file, 'w', encoding='utf-8') as f:
             json.dump(all_analyses, f, indent=2, ensure_ascii=False)
 
-        print(f"\nDetailed analysis saved to: {output_file}")
+        logger.info(f"Detailed analysis saved to: {output_file}")
 
         # Comparative report oluştur
         self._create_comparative_report(all_analyses, timestamp)
@@ -183,7 +189,7 @@ class DetailedMusicAnalyzer:
                 human_data.append(features)
 
         if not ai_data or not human_data:
-            print("Not enough data for comparison")
+            logger.warning("Not enough data for comparison")
             return
 
         ai_df = pd.DataFrame(ai_data)
@@ -197,15 +203,15 @@ class DetailedMusicAnalyzer:
             'feature_comparison': {}
         }
 
-        print("\n" + "="*60)
-        print("COMPARATIVE ANALYSIS: AI vs HUMAN")
-        print("="*60)
+        logger.info("=" * 60)
+        logger.info("COMPARATIVE ANALYSIS: AI vs HUMAN")
+        logger.info("=" * 60)
 
         # Her feature için karşılaştırma
-        print("\n{:<35} {:>12} {:>12} {:>12}".format(
+        logger.info("{:<35} {:>12} {:>12} {:>12}".format(
             "Feature", "AI Mean", "Human Mean", "Difference"
         ))
-        print("-"*75)
+        logger.info("-" * 75)
 
         for column in ai_df.columns:
             ai_mean = ai_df[column].mean()
@@ -222,7 +228,7 @@ class DetailedMusicAnalyzer:
 
             # En büyük farkları göster
             if abs(diff_pct) > 20:  # %20'den fazla fark varsa
-                print("{:<35} {:>12.4f} {:>12.4f} {:>11.1f}%".format(
+                logger.info("{:<35} {:>12.4f} {:>12.4f} {:>11.1f}%".format(
                     column[:34], ai_mean, human_mean, diff_pct
                 ))
 
@@ -231,7 +237,7 @@ class DetailedMusicAnalyzer:
         with open(report_file, 'w', encoding='utf-8') as f:
             json.dump(report, f, indent=2)
 
-        print(f"\nComparison report saved to: {report_file}")
+        logger.info(f"Comparison report saved to: {report_file}")
 
         # Görselleştirme
         self._create_visualizations(ai_df, human_df, timestamp)
@@ -243,7 +249,7 @@ class DetailedMusicAnalyzer:
         """
         AI vs Human görselleştirmeleri
         """
-        print("\nCreating visualizations...")
+        logger.info("Creating visualizations...")
 
         # En önemli farkları bul
         differences = {}
@@ -276,7 +282,7 @@ class DetailedMusicAnalyzer:
         plt.tight_layout()
         plot_file = self.output_dir / f"feature_comparison_{timestamp}.png"
         plt.savefig(plot_file, dpi=150, bbox_inches='tight')
-        print(f"Visualization saved: {plot_file}")
+        logger.info(f"Visualization saved: {plot_file}")
         plt.close()
 
         # Plot 2: Correlation heatmap
@@ -295,32 +301,37 @@ class DetailedMusicAnalyzer:
         plt.tight_layout()
         corr_file = self.output_dir / f"correlation_heatmap_{timestamp}.png"
         plt.savefig(corr_file, dpi=150, bbox_inches='tight')
-        print(f"Correlation heatmap saved: {corr_file}")
+        logger.info(f"Correlation heatmap saved: {corr_file}")
         plt.close()
 
     def _create_text_report(self, report, timestamp):
         """
         İnsan okunabilir text rapor
         """
-        report_text = f"""
-{'='*80}
+        report_text = """
+================================================================================
 MUSIC AI DETECTOR - COMPARATIVE ANALYSIS REPORT
-{'='*80}
+================================================================================
 
-Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+Generated: {}
 
 DATASET SUMMARY
-{'='*80}
-AI-Generated Tracks:  {report['ai_count']}
-Human-Made Tracks:    {report['human_count']}
-Total Tracks:         {report['ai_count'] + report['human_count']}
+================================================================================
+AI-Generated Tracks:  {}
+Human-Made Tracks:    {}
+Total Tracks:         {}
 
 KEY FINDINGS
-{'='*80}
+================================================================================
 
 Below are the features with the most significant differences between AI and Human music:
 
-"""
+""".format(
+            datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            report['ai_count'],
+            report['human_count'],
+            report['ai_count'] + report['human_count']
+        )
 
         # En büyük farkları bul
         features = report['feature_comparison']
@@ -333,7 +344,7 @@ Below are the features with the most significant differences between AI and Huma
         report_text += "\n{:<40} {:>12} {:>12} {:>12}\n".format(
             "Feature", "AI Mean", "Human Mean", "Diff %"
         )
-        report_text += "-"*80 + "\n"
+        report_text += "-" * 80 + "\n"
 
         for feature_name, stats in sorted_features[:30]:
             report_text += "{:<40} {:>12.4f} {:>12.4f} {:>11.1f}%\n".format(
@@ -343,9 +354,9 @@ Below are the features with the most significant differences between AI and Huma
                 stats['difference_percent']
             )
 
-        report_text += "\n" + "="*80 + "\n"
+        report_text += "\n" + "=" * 80 + "\n"
         report_text += "INTERPRETATION GUIDE\n"
-        report_text += "="*80 + "\n"
+        report_text += "=" * 80 + "\n"
         report_text += """
 TEMPO & RHYTHM FEATURES:
 - tempo_stability: AI genelde daha düşük (çok stabil tempo)
@@ -372,7 +383,7 @@ DYNAMICS:
 """
 
         report_text += "\nCONCLUSION\n"
-        report_text += "="*80 + "\n"
+        report_text += "=" * 80 + "\n"
         report_text += """
 Bu analize dayanarak, AI ve Human müziği ayırt etmek için en önemli özellikler:
 1. Tempo stability ve variance (AI çok stabil)
@@ -390,10 +401,10 @@ AI vs Human ayırımı yapabilir.
         with open(text_file, 'w', encoding='utf-8') as f:
             f.write(report_text)
 
-        print(f"Text report saved: {text_file}")
+        logger.info(f"Text report saved: {text_file}")
 
-        # Ekrana da yazdır
-        print(report_text)
+        # Ekrana da yazdır (for console output)
+        logger.info(report_text)
 
 
 def main():
@@ -406,19 +417,19 @@ def main():
     ai_dir = cfg.ai_generated_dir
     human_dir = cfg.human_made_dir
 
-    print("\n" + "="*60)
-    print("DETAILED MUSIC ANALYZER")
-    print("="*60)
-    print("\nThis tool will:")
-    print("1. Analyze each track individually")
-    print("2. Extract ALL features")
-    print("3. Create detailed comparison reports")
-    print("4. Generate visualizations")
-    print("5. Provide insights for AI vs Human differences")
-    print("\nMake sure you have music files in:")
-    print(f"  - {ai_dir}")
-    print(f"  - {human_dir}")
-    print("\nPress Enter to start (or Ctrl+C to cancel)...")
+    logger.info("=" * 60)
+    logger.info("DETAILED MUSIC ANALYZER")
+    logger.info("=" * 60)
+    logger.info("This tool will:")
+    logger.info("1. Analyze each track individually")
+    logger.info("2. Extract ALL features")
+    logger.info("3. Create detailed comparison reports")
+    logger.info("4. Generate visualizations")
+    logger.info("5. Provide insights for AI vs Human differences")
+    logger.info("Make sure you have music files in:")
+    logger.info(f"  - {ai_dir}")
+    logger.info(f"  - {human_dir}")
+    logger.info("Press Enter to start (or Ctrl+C to cancel)...")
     input()
 
     # Analiz yap
@@ -428,11 +439,11 @@ def main():
         separate_vocals=True
     )
 
-    print("\n" + "="*60)
-    print("ANALYSIS COMPLETE!")
-    print("="*60)
-    print(f"Total tracks analyzed: {len(analyses)}")
-    print(f"Results saved to: {analyzer.output_dir}")
+    logger.info("=" * 60)
+    logger.info("ANALYSIS COMPLETE!")
+    logger.info("=" * 60)
+    logger.info(f"Total tracks analyzed: {len(analyses)}")
+    logger.info(f"Results saved to: {analyzer.output_dir}")
 
 
 if __name__ == "__main__":

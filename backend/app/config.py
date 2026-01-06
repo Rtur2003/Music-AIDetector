@@ -4,7 +4,6 @@ Configuration management - centralized settings for the application.
 
 import os
 from pathlib import Path
-from typing import Optional
 
 
 class ConfigError(Exception):

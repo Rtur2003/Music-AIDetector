@@ -22,14 +22,12 @@ try:
     from .logging_config import get_logger
     from .predictor import MusicAIPredictor, PredictionError
     from .utils import ResourceManager
-    from .validators import ValidationError
 except Exception:
     from config import get_config
     from feature_extractor import FEATURE_EXTRACTOR_VERSION
     from logging_config import get_logger
     from predictor import MusicAIPredictor, PredictionError
     from utils import ResourceManager
-    from validators import ValidationError
 
 logger = get_logger(__name__)
 cfg = get_config()
